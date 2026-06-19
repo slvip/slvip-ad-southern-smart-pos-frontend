@@ -1,0 +1,23 @@
+{
+  "files": {
+    "main.css": "/slvip-ad-southern-smart-pos-frontend/static/css/main.611e2e6b.css",
+    "main.js": "/slvip-ad-southern-smart-pos-frontend/static/js/main.cb2e20c2.js",
+    "static/js/93.c5bd5350.chunk.js": "/slvip-ad-southern-smart-pos-frontend/static/js/93.c5bd5350.chunk.js",
+    "static/js/874.2e028d6e.chunk.js": "/slvip-ad-southern-smart-pos-frontend/static/js/874.2e028d6e.chunk.js",
+    "static/js/460.7e8ef80e.chunk.js": "/slvip-ad-southern-smart-pos-frontend/static/js/460.7e8ef80e.chunk.js",
+    "static/js/948.40bd57e4.chunk.js": "/slvip-ad-southern-smart-pos-frontend/static/js/948.40bd57e4.chunk.js",
+    "static/js/655.2b7e32f8.chunk.js": "/slvip-ad-southern-smart-pos-frontend/static/js/655.2b7e32f8.chunk.js",
+    "index.html": "/slvip-ad-southern-smart-pos-frontend/index.html",
+    "main.611e2e6b.css.map": "/slvip-ad-southern-smart-pos-frontend/static/css/main.611e2e6b.css.map",
+    "main.cb2e20c2.js.map": "/slvip-ad-southern-smart-pos-frontend/static/js/main.cb2e20c2.js.map",
+    "93.c5bd5350.chunk.js.map": "/slvip-ad-southern-smart-pos-frontend/static/js/93.c5bd5350.chunk.js.map",
+    "874.2e028d6e.chunk.js.map": "/slvip-ad-southern-smart-pos-frontend/static/js/874.2e028d6e.chunk.js.map",
+    "460.7e8ef80e.chunk.js.map": "/slvip-ad-southern-smart-pos-frontend/static/js/460.7e8ef80e.chunk.js.map",
+    "948.40bd57e4.chunk.js.map": "/slvip-ad-southern-smart-pos-frontend/static/js/948.40bd57e4.chunk.js.map",
+    "655.2b7e32f8.chunk.js.map": "/slvip-ad-southern-smart-pos-frontend/static/js/655.2b7e32f8.chunk.js.map"
+  },
+  "entrypoints": [
+    "static/css/main.611e2e6b.css",
+    "static/js/main.cb2e20c2.js"
+  ]
+}

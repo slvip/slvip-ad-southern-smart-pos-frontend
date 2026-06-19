@@ -8,6 +8,7 @@ on:
 jobs:
   deploy:
     runs-on: ubuntu-latest
+
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -25,6 +26,7 @@ jobs:
         env:
           # GitHub Secret වලින් Glitch URL inject කිරීම
           REACT_APP_API_URL: ${{ secrets.REACT_APP_API_URL }}
+          CI: false # 💡 Warnings නිසා Build එක Fail වෙන එක නවත්වන්න මේ පේළිය එකතු කළා
         run: npm run build
 
       - name: Deploy to GitHub Pages

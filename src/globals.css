@@ -1,0 +1,257 @@
+/* AD SOUTHERN SMART POS — Global Design System
+   Design choice: Deep navy command-centre aesthetic.
+   A POS used under fluorescent shop lights needs high contrast and
+   zero visual noise. Signature element: the amber "live pulse" dot
+   that appears in the header whenever the system is online — making
+   connectivity status a first-class visual concern for shop owners.
+*/
+
+:root {
+  /* ── Palette ── */
+  --clr-bg:        #0b1120;   /* deep navy — the floor */
+  --clr-surface:   #151f33;   /* card / panel surface */
+  --clr-border:    #1e2d4a;   /* subtle dividers */
+  --clr-primary:   #3b82f6;   /* action blue */
+  --clr-primary-h: #2563eb;   /* hover */
+  --clr-accent:    #f59e0b;   /* amber — live pulse, warnings */
+  --clr-success:   #10b981;
+  --clr-danger:    #ef4444;
+  --clr-danger-h:  #dc2626;
+  --clr-ghost:     #8b5cf6;   /* purple — ghost mode indicator */
+
+  --clr-text:      #e2e8f0;
+  --clr-text-muted:#94a3b8;
+  --clr-text-dim:  #475569;
+
+  /* ── Typography ── */
+  --font-display: 'Inter', system-ui, sans-serif;
+  --font-body:    'Noto Sans Sinhala', 'Inter', system-ui, sans-serif;
+  --font-mono:    'JetBrains Mono', 'Fira Code', monospace;
+
+  /* ── Spacing ── */
+  --radius-sm:  6px;
+  --radius:     10px;
+  --radius-lg:  16px;
+
+  /* ── Shadows ── */
+  --shadow-card: 0 4px 24px rgba(0,0,0,0.4);
+  --shadow-modal:0 8px 48px rgba(0,0,0,0.7);
+
+  /* ── Transitions ── */
+  --ease: cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+html { font-size: 15px; -webkit-font-smoothing: antialiased; }
+
+body {
+  font-family: var(--font-body);
+  background: var(--clr-bg);
+  color: var(--clr-text);
+  min-height: 100vh;
+  line-height: 1.6;
+}
+
+/* ── Scrollbar ── */
+::-webkit-scrollbar { width: 6px; }
+::-webkit-scrollbar-track { background: var(--clr-bg); }
+::-webkit-scrollbar-thumb { background: var(--clr-border); border-radius: 3px; }
+
+/* ── Resets ── */
+button { cursor: pointer; font-family: inherit; }
+input, select, textarea {
+  font-family: var(--font-body);
+  background: var(--clr-bg);
+  border: 1.5px solid var(--clr-border);
+  color: var(--clr-text);
+  border-radius: var(--radius-sm);
+  padding: 0.55rem 0.85rem;
+  font-size: 0.9rem;
+  width: 100%;
+  transition: border-color 0.2s var(--ease);
+  outline: none;
+}
+input:focus, select:focus, textarea:focus {
+  border-color: var(--clr-primary);
+  box-shadow: 0 0 0 3px rgba(59,130,246,0.15);
+}
+input::placeholder { color: var(--clr-text-dim); }
+label { font-size: 0.8rem; color: var(--clr-text-muted); font-weight: 500; display: block; margin-bottom: 0.3rem; }
+
+/* ── Buttons ── */
+.btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  padding: 0.55rem 1.1rem;
+  border-radius: var(--radius-sm);
+  border: none;
+  font-size: 0.875rem;
+  font-weight: 600;
+  font-family: var(--font-body);
+  transition: all 0.18s var(--ease);
+  white-space: nowrap;
+}
+.btn:disabled { opacity: 0.5; cursor: not-allowed; }
+.btn-primary  { background: var(--clr-primary);  color: #fff; }
+.btn-primary:not(:disabled):hover { background: var(--clr-primary-h); transform: translateY(-1px); }
+.btn-danger   { background: var(--clr-danger);   color: #fff; }
+.btn-danger:not(:disabled):hover  { background: var(--clr-danger-h); }
+.btn-ghost    { background: transparent; color: var(--clr-text-muted); border: 1.5px solid var(--clr-border); }
+.btn-ghost:not(:disabled):hover   { color: var(--clr-text); border-color: var(--clr-text-muted); }
+.btn-accent   { background: var(--clr-accent); color: #0b1120; }
+.btn-sm { padding: 0.35rem 0.75rem; font-size: 0.8rem; }
+.btn-lg { padding: 0.75rem 1.5rem; font-size: 1rem; }
+.btn-full { width: 100%; justify-content: center; }
+
+/* ── Cards ── */
+.card {
+  background: var(--clr-surface);
+  border: 1px solid var(--clr-border);
+  border-radius: var(--radius-lg);
+  padding: 1.5rem;
+  box-shadow: var(--shadow-card);
+}
+
+/* ── Form Group ── */
+.form-group { margin-bottom: 1.1rem; }
+.form-row { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; }
+@media (max-width: 480px) { .form-row { grid-template-columns: 1fr; } }
+
+/* ── Badge ── */
+.badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.2rem 0.6rem;
+  border-radius: 999px;
+  font-size: 0.72rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.badge-blue   { background: rgba(59,130,246,0.15);  color: var(--clr-primary); }
+.badge-green  { background: rgba(16,185,129,0.15);  color: var(--clr-success); }
+.badge-amber  { background: rgba(245,158,11,0.15);  color: var(--clr-accent); }
+.badge-red    { background: rgba(239,68,68,0.15);   color: var(--clr-danger); }
+.badge-purple { background: rgba(139,92,246,0.15);  color: var(--clr-ghost); }
+
+/* ── Modal ── */
+.modal-overlay {
+  position: fixed; inset: 0;
+  background: rgba(0,0,0,0.7);
+  backdrop-filter: blur(4px);
+  display: flex; align-items: center; justify-content: center;
+  z-index: 1000;
+  padding: 1rem;
+  animation: fadeIn 0.15s var(--ease);
+}
+.modal {
+  background: var(--clr-surface);
+  border: 1px solid var(--clr-border);
+  border-radius: var(--radius-lg);
+  padding: 2rem;
+  width: 100%;
+  max-width: 500px;
+  box-shadow: var(--shadow-modal);
+  animation: slideUp 0.2s var(--ease);
+}
+.modal-title {
+  font-size: 1.1rem;
+  font-weight: 700;
+  color: var(--clr-text);
+  margin-bottom: 1.25rem;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+/* ── Table ── */
+.table-wrap { overflow-x: auto; }
+table { width: 100%; border-collapse: collapse; font-size: 0.875rem; }
+thead th {
+  text-align: left;
+  padding: 0.6rem 0.85rem;
+  color: var(--clr-text-muted);
+  font-size: 0.75rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  border-bottom: 1px solid var(--clr-border);
+}
+tbody tr { border-bottom: 1px solid var(--clr-border); transition: background 0.12s; }
+tbody tr:hover { background: rgba(255,255,255,0.03); }
+tbody td { padding: 0.75rem 0.85rem; color: var(--clr-text); }
+
+/* ── Toast override (react-hot-toast) ── */
+.pos-toast { background: var(--clr-surface) !important; color: var(--clr-text) !important; border: 1px solid var(--clr-border) !important; }
+
+/* ── Ghost mode banner ── */
+.ghost-banner {
+  background: linear-gradient(90deg, rgba(139,92,246,0.2), rgba(139,92,246,0.05));
+  border-bottom: 1px solid rgba(139,92,246,0.3);
+  padding: 0.4rem 1rem;
+  font-size: 0.8rem;
+  color: var(--clr-ghost);
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+/* ── Animations ── */
+@keyframes fadeIn  { from { opacity: 0 } to { opacity: 1 } }
+@keyframes slideUp { from { transform: translateY(20px); opacity: 0 } to { transform: translateY(0); opacity: 1 } }
+@keyframes pulse   { 0%,100% { opacity:1 } 50% { opacity:0.4 } }
+@keyframes spin    { to { transform: rotate(360deg) } }
+
+.animate-pulse { animation: pulse 2s ease infinite; }
+.animate-spin  { animation: spin 0.8s linear infinite; }
+
+/* ── Live pulse dot (signature element) ── */
+.live-dot {
+  width: 8px; height: 8px;
+  border-radius: 50%;
+  background: var(--clr-success);
+  animation: pulse 2s ease infinite;
+  box-shadow: 0 0 6px var(--clr-success);
+}
+.live-dot.offline { background: var(--clr-danger); box-shadow: 0 0 6px var(--clr-danger); animation: none; }
+
+/* ── PIN input ── */
+.pin-inputs {
+  display: flex; gap: 0.75rem; justify-content: center; margin: 1rem 0;
+}
+.pin-input {
+  width: 56px; height: 56px;
+  text-align: center;
+  font-size: 1.5rem;
+  font-weight: 700;
+  border-radius: var(--radius);
+  border: 2px solid var(--clr-border);
+  background: var(--clr-bg);
+  color: var(--clr-text);
+  caret-color: var(--clr-primary);
+}
+.pin-input:focus { border-color: var(--clr-primary); }
+
+/* ── Section header ── */
+.section-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 1.25rem;
+}
+.section-title { font-size: 1.05rem; font-weight: 700; color: var(--clr-text); }
+
+/* ── Empty state ── */
+.empty-state {
+  text-align: center; padding: 3rem 1rem;
+  color: var(--clr-text-muted);
+}
+.empty-state svg { opacity: 0.3; margin-bottom: 0.75rem; }
+
+/* ── Tier chip colors ── */
+.tier-micro      { color: #6ee7b7; background: rgba(110,231,183,0.1); }
+.tier-standard   { color: #93c5fd; background: rgba(147,197,253,0.1); }
+.tier-mega       { color: #fcd34d; background: rgba(252,211,77,0.1); }
+.tier-enterprise { color: #f9a8d4; background: rgba(249,168,212,0.1); }

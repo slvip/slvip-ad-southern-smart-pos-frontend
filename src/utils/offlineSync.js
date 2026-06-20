@@ -316,7 +316,36 @@ export async function deleteOfflineHold(shopId, localId) {
   });
 }
 
-/* ── Offline-aware bill creator ── */
+/* ── Auto-sync wiring (Issue #3) ──────────────────────────────────────────
+   syncOfflineData() previously existed but nothing actually called it
+   automatically — sync only happened if some screen explicitly invoked it.
+   This listens for: (a) the browser 'online' event, and (b) the
+   'pos:trigger-sync' CustomEvent dispatched by index.js when the Service
+   Worker's Background Sync wakes the app (see public/sw.js), and runs the
+   real sync against whichever shop is currently logged in. */
+let autoSyncWired = false;
+export function initAutoSync() {
+  if (autoSyncWired || typeof window === 'undefined') return;
+  autoSyncWired = true;
+
+  const runSync = async () => {
+    try {
+      const userRaw = localStorage.getItem('pos_user');
+      const user = userRaw ? JSON.parse(userRaw) : null;
+      const shopId = user?.shopId || user?.shop?._id;
+      if (!shopId || !navigator.onLine) return;
+      // Lazy import to avoid a circular dependency with api.js
+      const { billingAPI } = await import('./api');
+      await syncOfflineData(shopId, billingAPI);
+    } catch (err) {
+      console.error('Auto-sync failed:', err.message);
+    }
+  };
+
+  window.addEventListener('online', runSync);
+  window.addEventListener('pos:trigger-sync', runSync);
+}
+
 export async function createBillWithOfflineFallback(shopId, billData, billingAPI) {
   if (navigator.onLine) {
     try {

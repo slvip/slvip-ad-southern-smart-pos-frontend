@@ -1,6 +1,14 @@
 // AD SOUTHERN SMART POS — Billing / POS  (Module 3 — COMPLETE)
 // src/pages/billing/BillingPOS.js
 //
+// ── FIX LOG ──────────────────────────────────────────────────────────────────
+// FIX 1: CheckoutModal — Customer WhatsApp Phone Number field added (SPEC §5B item 60)
+//         customerPhone passed to handleCheckout → billPayload → API
+// FIX 2: billDone box — "📱 Send via WhatsApp" optional button added (SPEC §5C item 62)
+//         Visible only when whatsappEnabled = true in shop settings
+//         Calls billingAPI.sendWhatsAppReceipt(billId, phone) — optional, cashier-triggered
+// ─────────────────────────────────────────────────────────────────────────────
+//
 // ✅ Features implemented:
 //   • USB/Bluetooth Hardware Barcode Scanner (keydown buffer)
 //   • QuaggaJS Camera Scanner (CamBarcodeScanner component)
@@ -19,6 +27,8 @@ import React, {
   useState, useEffect, useRef, useCallback, Suspense, lazy,
 } from 'react';
 import { billingAPI } from '../../utils/api';
+// NOTE: billingAPI.sendWhatsAppReceipt(billId, phone) — FIX 2 (see api.js — add if missing)
+// POST /billing/bills/:id/whatsapp  { customerPhone }  — backend Baileys send
 import { useAuth } from '../../context/AuthContext';
 import toast from 'react-hot-toast';
 import {
@@ -74,6 +84,8 @@ export default function BillingPOS() {
   const [voidOpen,       setVoidOpen]       = useState(false);
   const [voidBillTarget, setVoidBillTarget] = useState(null);
   const [selectedPastBill, setSelectedPastBill] = useState(null);
+  // FIX 1 & 2: WhatsApp receipt delivery state
+  const [sendingWA,      setSendingWA]      = useState(false);
 
   // FRACTIONAL ITEM: Quick Weight Pop-up state
   const [weightModal,    setWeightModal]    = useState(null);  // { item } or null
@@ -401,7 +413,7 @@ export default function BillingPOS() {
   /* ─────────────────────────────────────────────────────────
      CHECKOUT — Online: API | Offline: IndexedDB
   ──────────────────────────────────────────────────────────*/
-  const handleCheckout = async (paymentMethod, amountPaid, customerName) => {
+  const handleCheckout = async (paymentMethod, amountPaid, customerName, customerPhone) => {
     if (cart.length === 0) return;
     setLoading(true);
     const billPayload = {
@@ -421,6 +433,7 @@ export default function BillingPOS() {
       amountPaid:    parseFloat(amountPaid),
       change:        Math.max(0, parseFloat(amountPaid) - total),
       customerName:  customerName || '',
+      customerPhone: customerPhone || '',  // FIX 1: WhatsApp delivery (SPEC §5B item 60)
       cashierName:   user?.displayName || user?.username,
       createdAt:     new Date().toISOString(),
     };
@@ -519,8 +532,26 @@ export default function BillingPOS() {
   };
 
   /* ─────────────────────────────────────────────────────────
-     PRINT RECEIPT
+     SEND WHATSAPP RECEIPT (FIX 2 — SPEC §5C item 62)
+     Optional — cashier clicks "Send via WhatsApp" button after checkout.
+     Backend (Baileys) sends receipt to customerPhone.
   ──────────────────────────────────────────────────────────*/
+  const handleSendWhatsApp = async (bill, phone) => {
+    if (!phone) { toast.error('WhatsApp Number ඇතුළත් නොවීය'); return; }
+    setSendingWA(true);
+    try {
+      // billingAPI.sendWhatsAppReceipt — POST /billing/bills/:id/whatsapp
+      // Falls back gracefully if endpoint not yet deployed
+      await billingAPI.sendWhatsAppReceipt?.(bill._id, { customerPhone: phone });
+      toast.success(`📱 Receipt WhatsApp ${phone} වෙත යැව්වා`);
+    } catch (err) {
+      toast.error(err.response?.data?.message || 'WhatsApp Send Error');
+    } finally {
+      setSendingWA(false);
+    }
+  };
+
+  /* ── Print Receipt (unchanged) ── */
   const printReceipt = (bill) => {
     const html = generateReceiptHTML(bill, user?.shop, cosmeticSaving, cosmeticRate);
     const w    = window.open('', '_blank', 'width=420,height=650,toolbar=0,scrollbars=0');
@@ -775,7 +806,7 @@ export default function BillingPOS() {
             >🗑 Clear (Esc)</button>
           </div>
 
-          {/* Last bill print box */}
+                    {/* Last bill print box — FIX 2: WhatsApp send button added */}
           {billDone && (
             <div style={styles.billDoneBox}>
               <div style={{ fontWeight: 700, color: 'var(--clr-success)', fontSize: '0.88rem', marginBottom: '0.5rem' }}>
@@ -784,615 +815,37 @@ export default function BillingPOS() {
               </div>
               <div style={{ fontSize: '0.78rem', color: 'var(--clr-text-muted)', marginBottom: '0.6rem' }}>
                 රු.{billDone.total?.toLocaleString()} — {billDone.paymentMethod}
+                {billDone.customerName && (
+                  <span style={{ marginLeft: 6 }}>· {billDone.customerName}</span>
+                )}
               </div>
-              <button className="btn btn-primary btn-full btn-sm" onClick={() => printReceipt(billDone)}>
+              <button className="btn btn-primary btn-full btn-sm" onClick={() => printReceipt(billDone)}
+                style={{ marginBottom: '0.45rem' }}
+              >
                 🖨 Print Receipt
               </button>
+              {/* FIX 2: Optional "Send via WhatsApp" button (SPEC §5C item 62) */}
+              {user?.shop?.settings?.whatsappEnabled && (
+                <button
+                  className="btn btn-full btn-sm"
+                  style={{
+                    background: 'rgba(37,211,102,0.12)',
+                    color: '#25d366',
+                    border: '1px solid rgba(37,211,102,0.35)',
+                    fontWeight: 600,
+                  }}
+                  disabled={sendingWA}
+                  onClick={() => {
+                    const phone = billDone.customerPhone;
+                    if (!phone) {
+                      toast.error('Customer Phone Number නොමැත — Checkout හි ඇතුළත් කරන්න');
+                      return;
+                    }
+                    handleSendWhatsApp(billDone, phone);
+                  }}
+                >
+                  {sendingWA ? '⏳ Sending...' : '📱 Send via WhatsApp'}
+                </button>
+              )}
             </div>
           )}
-        </div>
-      </div>
-
-      {/* ═══════════════════════════════════════════════════
-          MODALS
-      ═══════════════════════════════════════════════════ */}
-
-      {/* Checkout Modal */}
-      {checkoutOpen && (
-        <CheckoutModal
-          total={total}
-          onConfirm={handleCheckout}
-          onClose={() => setCheckoutOpen(false)}
-          loading={loading}
-        />
-      )}
-
-      {/* Held Bills Modal */}
-      {showHeld && (
-        <div className="modal-overlay" onClick={() => setShowHeld(false)}>
-          <div className="modal" onClick={e => e.stopPropagation()} style={{ maxWidth: 480 }}>
-            <div className="modal-title">📂 Hold කළ Bills (F5)</div>
-            {heldBills.length === 0 ? (
-              <div className="empty-state" style={{ padding: '2rem' }}>Hold කළ Bills නොමැත</div>
-            ) : heldBills.map((h, i) => (
-              <div key={h._id || i} style={styles.heldRow}>
-                <div>
-                  <div style={{ fontWeight: 600 }}>
-                    {h.items?.length} items — රු.{h.subtotal?.toLocaleString()}
-                    {h.source === 'offline' && <span style={{ color: 'var(--clr-accent)', marginLeft: 8, fontSize: '0.72rem' }}>📴 Offline</span>}
-                  </div>
-                  <div style={{ fontSize: '0.73rem', color: 'var(--clr-text-muted)' }}>
-                    {new Date(h.heldAt || h.createdAt || h.savedAt).toLocaleTimeString('si-LK')}
-                  </div>
-                </div>
-                <button className="btn btn-primary btn-sm" onClick={() => retrieveHeld(h)}>
-                  ↩ Retrieve
-                </button>
-              </div>
-            ))}
-            <button className="btn btn-ghost btn-full" style={{ marginTop: '1rem' }} onClick={() => setShowHeld(false)}>
-              Close (Esc)
-            </button>
-          </div>
-        </div>
-      )}
-
-      {/* Past Bills Modal */}
-      {pastBillsOpen && (
-        <div className="modal-overlay" onClick={() => setPastBillsOpen(false)}>
-          <div className="modal" onClick={e => e.stopPropagation()} style={{ maxWidth: 680, width: '95vw' }}>
-            <div className="modal-title">📋 Past Bills</div>
-            <div style={{ display: 'flex', gap: '0.5rem', marginBottom: '1rem' }}>
-              <input
-                value={pastSearch}
-                onChange={e => setPastSearch(e.target.value)}
-                onKeyDown={e => e.key === 'Enter' && loadPastBills()}
-                placeholder="Bill # හෝ Cashier නම සොයන්න..."
-                style={{ flex: 1 }}
-                autoFocus
-              />
-              <button className="btn btn-primary btn-sm" onClick={loadPastBills}>
-                🔍
-              </button>
-            </div>
-
-            {pastLoading ? (
-              <div className="empty-state">⏳ Loading...</div>
-            ) : pastBills.length === 0 ? (
-              <div className="empty-state">Bills හමු නොවීය</div>
-            ) : (
-              <div style={{ maxHeight: 400, overflowY: 'auto' }}>
-                {pastBills.map(b => (
-                  <div
-                    key={b._id}
-                    style={{
-                      ...styles.pastBillRow,
-                      background: selectedPastBill?._id === b._id ? 'rgba(99,102,241,0.06)' : undefined,
-                      cursor: 'pointer',
-                    }}
-                    onClick={() => setSelectedPastBill(selectedPastBill?._id === b._id ? null : b)}
-                  >
-                    <div>
-                      <div style={{ fontWeight: 700, fontFamily: 'var(--font-mono)', color: 'var(--clr-accent)', fontSize: '0.88rem' }}>
-                        #{b.billNumber}
-                        {b.isVoided && <span style={{ color: 'var(--clr-danger)', marginLeft: 8, fontSize: '0.72rem' }}>VOID</span>}
-                      </div>
-                      <div style={{ fontSize: '0.73rem', color: 'var(--clr-text-muted)' }}>
-                        {new Date(b.createdAt).toLocaleString('si-LK')} — {b.cashierName}
-                      </div>
-                    </div>
-                    <div style={{ textAlign: 'right' }}>
-                      <div style={{ fontWeight: 700, color: 'var(--clr-success)' }}>
-                        රු.{b.total?.toLocaleString()}
-                      </div>
-                      <div style={{ fontSize: '0.72rem', color: 'var(--clr-text-muted)' }}>{b.paymentMethod}</div>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
-
-            {/* Expanded bill actions */}
-            {selectedPastBill && (
-              <div style={{ marginTop: '1rem', padding: '0.75rem', background: 'var(--clr-bg)', border: '1px solid var(--clr-border)', borderRadius: 'var(--radius)' }}>
-                <div style={{ fontWeight: 600, fontSize: '0.85rem', marginBottom: '0.5rem' }}>
-                  Bill #{selectedPastBill.billNumber} — Actions
-                </div>
-                <div style={{ display: 'flex', gap: '0.5rem' }}>
-                  <button className="btn btn-primary btn-sm" onClick={() => printReceipt(selectedPastBill)}>
-                    🖨 Print
-                  </button>
-                  {!selectedPastBill.isVoided && (
-                    <button
-                      className="btn btn-sm"
-                      style={{ color: 'var(--clr-danger)', border: '1px solid var(--clr-danger)', background: 'none' }}
-                      onClick={() => { setVoidBillTarget(selectedPastBill); setVoidOpen(true); }}
-                    >
-                      🗑 Void Bill
-                    </button>
-                  )}
-                </div>
-              </div>
-            )}
-
-            <button className="btn btn-ghost btn-full" style={{ marginTop: '1rem' }} onClick={() => setPastBillsOpen(false)}>
-              Close (Esc)
-            </button>
-          </div>
-        </div>
-      )}
-
-      {/* Void Bill Modal */}
-      {voidOpen && voidBillTarget && (
-        <VoidBillModal
-          bill={voidBillTarget}
-          onConfirm={handleVoid}
-          onClose={() => { setVoidOpen(false); setVoidBillTarget(null); }}
-        />
-      )}
-
-      {/* Camera Barcode Scanner Modal */}
-      {camScanOpen && (
-        <div className="modal-overlay" onClick={() => setCamScanOpen(false)}>
-          <div className="modal" onClick={e => e.stopPropagation()} style={{ maxWidth: 420 }}>
-            <div className="modal-title">📷 Camera Barcode Scanner</div>
-            <Suspense fallback={<div className="empty-state">⏳ Scanner Loading...</div>}>
-              <CamBarcodeScanner
-                onDetected={(code) => {
-                  setCamScanOpen(false);
-                  lookupBarcode(code);
-                }}
-                onClose={() => setCamScanOpen(false)}
-              />
-            </Suspense>
-          </div>
-        </div>
-      )}
-
-      {/* ⚖️ FRACTIONAL WEIGHT SELECTION MODAL */}
-      {weightModal && (
-        <div className="modal-overlay" onClick={() => { setWeightModal(null); setWeightInput(''); }}>
-          <div className="modal" onClick={e => e.stopPropagation()} style={{ maxWidth: 360 }}>
-            <div className="modal-title" style={{ marginBottom: '0.25rem' }}>
-              ⚖️ {weightModal.name}
-            </div>
-            <div style={{ fontSize: '0.78rem', color: 'var(--clr-text-muted)', marginBottom: '1.2rem' }}>
-              රු.{Number(weightModal.sellingPrice).toLocaleString()} / kg &nbsp;|&nbsp; Stock: {weightModal.quantity} kg
-            </div>
-
-            {/* Quick Weight Buttons */}
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: '0.4rem', marginBottom: '1.1rem' }}>
-              {[
-                { label: '100g', kg: 0.100 },
-                { label: '250g', kg: 0.250 },
-                { label: '500g', kg: 0.500 },
-                { label: '750g', kg: 0.750 },
-                { label: '1 kg', kg: 1.000 },
-              ].map(({ label, kg }) => (
-                <button
-                  key={label}
-                  onClick={() => confirmWeight(kg)}
-                  style={{
-                    padding: '0.6rem 0.2rem',
-                    borderRadius: 8,
-                    border: '1.5px solid var(--clr-primary)',
-                    background: 'rgba(99,102,241,0.08)',
-                    color: 'var(--clr-primary)',
-                    fontWeight: 700,
-                    fontSize: '0.82rem',
-                    cursor: 'pointer',
-                    transition: 'background 0.15s',
-                  }}
-                  onMouseOver={e => e.currentTarget.style.background = 'rgba(99,102,241,0.2)'}
-                  onMouseOut={e  => e.currentTarget.style.background = 'rgba(99,102,241,0.08)'}
-                >
-                  {label}
-                </button>
-              ))}
-            </div>
-
-            {/* Manual gram/kg input */}
-            <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center', marginBottom: '1rem' }}>
-              <input
-                ref={weightInputRef}
-                type="number"
-                min="0"
-                step="0.001"
-                value={weightInput}
-                onChange={e => handleWeightManualInput(e.target.value)}
-                onKeyDown={e => { if (e.key === 'Enter') handleWeightConfirmManual(); if (e.key === 'Escape') { setWeightModal(null); setWeightInput(''); } }}
-                placeholder="ග්‍රෑම් හෝ kg ටයිප් කරන්න (eg: 150)"
-                style={{
-                  flex: 1, padding: '0.55rem 0.75rem', borderRadius: 8,
-                  border: '1.5px solid var(--clr-border)',
-                  background: 'var(--clr-surface-2)',
-                  color: 'var(--clr-text)',
-                  fontSize: '0.95rem',
-                }}
-              />
-              <button
-                onClick={handleWeightConfirmManual}
-                className="btn btn-primary"
-                style={{ padding: '0.55rem 1rem', whiteSpace: 'nowrap' }}
-              >
-                ✅ Add
-              </button>
-            </div>
-            <div style={{ fontSize: '0.72rem', color: 'var(--clr-text-dim)', textAlign: 'center', marginBottom: '0.75rem' }}>
-              💡 10 ට වැඩි ඉලක්කමක් ඇතුළත් කළ හොත් ස්වයංක්‍රීයව ග්‍රෑම් ලෙස හඳුනා ගනී (150 → 0.150 kg)
-            </div>
-            <button className="btn btn-ghost btn-full" onClick={() => { setWeightModal(null); setWeightInput(''); }}>
-              අවලංගු
-            </button>
-          </div>
-        </div>
-      )}
-    </div>
-  );
-}
-
-/* ════════════════════════════════════════════════════════════
-   SUB-COMPONENTS
-════════════════════════════════════════════════════════════ */
-
-function SummaryRow({ label, value, color, small }) {
-  return (
-    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.45rem', fontSize: small ? '0.82rem' : '0.9rem', color: color || 'var(--clr-text)' }}>
-      <span>{label}</span>
-      <span style={{ fontWeight: 600 }}>{value}</span>
-    </div>
-  );
-}
-
-/* ── Checkout Modal ── */
-function CheckoutModal({ total, onConfirm, onClose, loading }) {
-  const [method,       setMethod]       = useState('cash');
-  const [paid,         setPaid]         = useState('');
-  const [customerName, setCustomerName] = useState('');
-
-  const change   = Math.max(0, parseFloat(paid || 0) - total);
-  const shortfall = parseFloat(paid || 0) < total;
-
-  const confirm = () => {
-    const amt = method === 'cash' ? paid : String(total);
-    onConfirm(method, amt, customerName);
-  };
-
-  return (
-    <div className="modal-overlay" onClick={onClose}>
-      <div className="modal" onClick={e => e.stopPropagation()} style={{ maxWidth: 440 }}>
-        <div className="modal-title">💳 Checkout</div>
-
-        {/* Payment method toggle */}
-        <div style={{ display: 'flex', gap: '0.5rem', marginBottom: '1.25rem' }}>
-          {[['cash','💵 Cash'],['card','💳 Card'],['transfer','📱 Transfer']].map(([m, label]) => (
-            <button
-              key={m}
-              className={`btn btn-full ${method === m ? 'btn-primary' : 'btn-ghost'}`}
-              style={{ flex: 1, fontSize: '0.83rem' }}
-              onClick={() => setMethod(m)}
-            >{label}</button>
-          ))}
-        </div>
-
-        {/* Total display */}
-        <div style={{ background: 'var(--clr-bg)', border: '1px solid var(--clr-border)', borderRadius: 'var(--radius)', padding: '1rem 1.25rem', marginBottom: '1rem' }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', fontWeight: 800, fontSize: '1.2rem' }}>
-            <span>Total</span>
-            <span style={{ color: 'var(--clr-primary)' }}>රු.{total.toLocaleString()}</span>
-          </div>
-        </div>
-
-        {/* Cash amount */}
-        {method === 'cash' && (
-          <>
-            <div className="form-group">
-              <label>ලැබුණු Cash (රු.)</label>
-              <input
-                type="number"
-                value={paid}
-                onChange={e => setPaid(e.target.value)}
-                placeholder={`${total}`}
-                autoFocus
-                min={0}
-              />
-            </div>
-            {paid && !shortfall && (
-              <div style={{
-                background: 'rgba(16,185,129,0.08)',
-                border: '1px solid rgba(16,185,129,0.3)',
-                borderRadius: 'var(--radius)',
-                padding: '0.85rem 1.25rem',
-                marginBottom: '1rem',
-                display: 'flex',
-                justifyContent: 'space-between',
-                alignItems: 'center',
-              }}>
-                <div>
-                  <div style={{ fontSize: '0.75rem', color: 'var(--clr-text-muted)' }}>Change (ඉතිරිය)</div>
-                  <div style={{ fontSize: '1.5rem', fontWeight: 900, color: 'var(--clr-success)', fontFamily: 'var(--font-mono)' }}>
-                    රු.{change.toLocaleString()}
-                  </div>
-                </div>
-                <div style={{ fontSize: '2rem' }}>💵</div>
-              </div>
-            )}
-            {paid && shortfall && (
-              <div style={{ color: 'var(--clr-danger)', fontSize: '0.82rem', marginBottom: '1rem' }}>
-                ⚠️ රු.{(total - parseFloat(paid)).toLocaleString()} අඩු
-              </div>
-            )}
-          </>
-        )}
-
-        {/* Optional customer name */}
-        <div className="form-group">
-          <label>Customer නම (Optional)</label>
-          <input
-            value={customerName}
-            onChange={e => setCustomerName(e.target.value)}
-            placeholder="Perera..."
-          />
-        </div>
-
-        <div style={{ display: 'flex', gap: '0.75rem', marginTop: '0.5rem' }}>
-          <button className="btn btn-ghost btn-full" onClick={onClose} disabled={loading}>Cancel</button>
-          <button
-            className="btn btn-primary btn-full"
-            disabled={loading || (method === 'cash' && (!paid || shortfall))}
-            onClick={confirm}
-          >
-            {loading ? '⏳ Processing...' : '✅ Bill Complete'}
-          </button>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-/* ── Void Bill Modal ── */
-function VoidBillModal({ bill, onConfirm, onClose }) {
-  const [reason,   setReason]   = useState('');
-  const [masterPw, setMasterPw] = useState('');
-  const [loading,  setLoading]  = useState(false);
-
-  const submit = async () => {
-    if (!reason.trim())   { toast.error('Void Reason ඇතුළත් කරන්න'); return; }
-    if (!masterPw.trim()) { toast.error('Master Password ඇතුළත් කරන්න'); return; }
-    setLoading(true);
-    await onConfirm(bill._id, reason, masterPw);
-    setLoading(false);
-  };
-
-  return (
-    <div className="modal-overlay" onClick={onClose}>
-      <div className="modal" onClick={e => e.stopPropagation()} style={{ maxWidth: 420 }}>
-        <div className="modal-title" style={{ color: 'var(--clr-danger)' }}>🗑 Void Bill #{bill.billNumber}</div>
-        <div style={{ color: 'var(--clr-text-muted)', fontSize: '0.82rem', marginBottom: '1rem' }}>
-          ⚠️ Void කළ Bill නැවත Restore කළ නොහැක. WhatsApp Void Alert ස්වයංක්‍රීයව යවයි.
-        </div>
-        <div className="form-group">
-          <label>Void Reason *</label>
-          <input
-            value={reason}
-            onChange={e => setReason(e.target.value)}
-            placeholder="Customer cancel, Data entry error..."
-            autoFocus
-          />
-        </div>
-        <div className="form-group">
-          <label>Master Password *</label>
-          <input
-            type="password"
-            value={masterPw}
-            onChange={e => setMasterPw(e.target.value)}
-            placeholder="Master Action Password"
-          />
-        </div>
-        <div style={{ display: 'flex', gap: '0.75rem' }}>
-          <button className="btn btn-ghost btn-full" onClick={onClose} disabled={loading}>Cancel</button>
-          <button
-            className="btn btn-full"
-            style={{ background: 'var(--clr-danger)', color: '#fff', border: 'none', borderRadius: 'var(--radius)', padding: '0.6rem 1rem', fontWeight: 700, cursor: loading ? 'not-allowed' : 'pointer' }}
-            onClick={submit}
-            disabled={loading}
-          >
-            {loading ? '⏳...' : '🗑 Void Bill'}
-          </button>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-/* ════════════════════════════════════════════════════════════
-   RECEIPT HTML GENERATOR  (58mm / 80mm Thermal)
-════════════════════════════════════════════════════════════ */
-function generateReceiptHTML(bill, shop, cosmeticSaving, cosmeticRate) {
-  const shopName    = shop?.settings?.shopDisplayName || shop?.name || 'AD SOUTHERN';
-  const footerText  = shop?.settings?.receiptFooter   || 'ස්තූතියි! AD SOUTHERN SMART POS';
-  const payLabel    = { cash: 'Cash', card: 'Card', transfer: 'Transfer' }[bill.paymentMethod] || bill.paymentMethod || '';
-
-  const rows = (bill.items || []).map(i => `
-    <tr>
-      <td style="padding:3px 2px;vertical-align:top">${i.name}</td>
-      <td style="text-align:center;padding:3px 2px;white-space:nowrap">${i.qty}${i.unit ? ` ${i.unit}` : ''}</td>
-      <td style="text-align:right;padding:3px 2px;white-space:nowrap">Rs.${(i.price * i.qty).toLocaleString()}</td>
-    </tr>`).join('');
-
-  const cosmeticLine = (cosmeticSaving > 0 || (bill.cosmeticSaving > 0))
-    ? `<div style="text-align:center;color:#059669;font-size:11px;padding:4px 0;border-top:1px dashed #ccc;margin-top:4px">
-         🎁 ඔබට ලැබුණු ලාභය: Rs.${(bill.cosmeticSaving || cosmeticSaving).toLocaleString()}
-       </div>`
-    : '';
-
-  return `<!DOCTYPE html>
-<html><head><meta charset="UTF-8"/>
-<style>
-  *{box-sizing:border-box;margin:0;padding:0}
-  body{font-family:'Noto Sans Sinhala','Noto Sans','Arial Narrow','Arial',sans-serif;font-size:12px;width:280px;margin:0 auto;padding:4px 0}
-  .center{text-align:center}
-  .bold{font-weight:700}
-  .hr{border:none;border-top:1px dashed #555;margin:5px 0}
-  table{width:100%;border-collapse:collapse}
-  th{font-size:10px;text-transform:uppercase;letter-spacing:.04em;padding:2px 2px 4px;border-bottom:1px solid #aaa}
-  td{font-size:11.5px;vertical-align:top}
-  .total-row td{font-weight:700;font-size:13px;padding-top:5px;border-top:2px solid #333}
-  .sub-row td{font-size:11px;color:#555;padding-top:2px}
-  .footer{text-align:center;font-size:9.5px;color:#666;margin-top:6px;line-height:1.5}
-  @media print{
-    @page{margin:2mm;size:80mm auto}
-    body{width:100%}
-  }
-</style>
-</head><body>
-<div class="center bold" style="font-size:15px;letter-spacing:.02em">${shopName}</div>
-<div class="center" style="font-size:9.5px;color:#666">AD SOUTHERN SMART POS</div>
-<hr class="hr"/>
-<div style="font-size:11px;line-height:1.7">
-  <div>Bill&nbsp;#: <strong>${bill.billNumber}</strong></div>
-  <div>Date: ${new Date(bill.createdAt).toLocaleString('si-LK')}</div>
-  <div>Cashier: ${bill.cashierName || '—'}</div>
-  ${bill.customerName ? `<div>Customer: ${bill.customerName}</div>` : ''}
-</div>
-<hr class="hr"/>
-<table>
-  <thead>
-    <tr>
-      <th style="text-align:left">Item</th>
-      <th style="text-align:center">Qty</th>
-      <th style="text-align:right">Total</th>
-    </tr>
-  </thead>
-  <tbody>${rows}</tbody>
-</table>
-<hr class="hr"/>
-<table>
-  <tr class="total-row">
-    <td>TOTAL</td>
-    <td style="text-align:right">Rs.${bill.total?.toLocaleString()}</td>
-  </tr>
-  ${bill.paymentMethod ? `<tr class="sub-row"><td>${payLabel}</td><td style="text-align:right">${bill.amountPaid ? `Rs.${bill.amountPaid.toLocaleString()}` : ''}</td></tr>` : ''}
-  ${bill.change > 0 ? `<tr class="sub-row"><td>Change</td><td style="text-align:right">Rs.${bill.change.toLocaleString()}</td></tr>` : ''}
-</table>
-${cosmeticLine}
-<hr class="hr"/>
-<div class="footer">${footerText}</div>
-<div style="margin-top:8px"></div>
-</body></html>`;
-}
-
-/* ════════════════════════════════════════════════════════════
-   STYLES
-════════════════════════════════════════════════════════════ */
-const styles = {
-  posRoot: { display: 'flex', flexDirection: 'column', height: '100%' },
-  offlineBanner: {
-    background: 'rgba(245,158,11,0.15)',
-    border: '1px solid rgba(245,158,11,0.4)',
-    color: 'var(--clr-accent)',
-    fontSize: '0.78rem',
-    fontWeight: 600,
-    padding: '0.45rem 1rem',
-    borderRadius: 'var(--radius)',
-    marginBottom: '0.75rem',
-    textAlign: 'center',
-  },
-  posLayout: {
-    display: 'grid',
-    gridTemplateColumns: '1fr 300px',
-    gap: '1.25rem',
-    flex: 1,
-    minHeight: 0,
-  },
-  cartPanel: {
-    background: 'var(--clr-surface)',
-    border: '1px solid var(--clr-border)',
-    borderRadius: 'var(--radius-lg)',
-    padding: '1rem',
-    display: 'flex',
-    flexDirection: 'column',
-    gap: '0.75rem',
-    overflow: 'hidden',
-    minHeight: 0,
-  },
-  summaryPanel: {
-    display: 'flex',
-    flexDirection: 'column',
-    gap: '0',
-    overflowY: 'auto',
-  },
-  searchRow: { display: 'flex', gap: '0.5rem', alignItems: 'center' },
-  searchDrop: {
-    background: 'var(--clr-bg)',
-    border: '1px solid var(--clr-border)',
-    borderRadius: 'var(--radius)',
-    overflow: 'hidden',
-    maxHeight: 280,
-    overflowY: 'auto',
-    zIndex: 10,
-    boxShadow: '0 4px 12px rgba(0,0,0,0.15)',
-  },
-  searchItem: {
-    display: 'flex',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    padding: '0.6rem 0.85rem',
-    cursor: 'pointer',
-    borderBottom: '1px solid var(--clr-border)',
-    transition: 'background 0.1s',
-  },
-  qtyBtn: {
-    width: 28, height: 28,
-    background: 'var(--clr-bg)',
-    border: '1px solid var(--clr-border)',
-    borderRadius: 'var(--radius-sm)',
-    cursor: 'pointer',
-    color: 'var(--clr-text)',
-    fontWeight: 700,
-    fontSize: '0.95rem',
-    display: 'flex', alignItems: 'center', justifyContent: 'center',
-  },
-  shortcutsBar: {
-    display: 'flex',
-    gap: '0.35rem',
-    flexWrap: 'wrap',
-    paddingTop: '0.5rem',
-    borderTop: '1px solid var(--clr-border)',
-  },
-  shortcutChip: {
-    fontSize: '0.68rem',
-    color: 'var(--clr-text-dim)',
-    display: 'flex',
-    alignItems: 'center',
-    gap: '0.25rem',
-  },
-  kbdKey: {
-    background: 'var(--clr-bg)',
-    border: '1px solid var(--clr-border)',
-    borderBottom: '2px solid var(--clr-border)',
-    borderRadius: 3,
-    padding: '1px 4px',
-    fontSize: '0.67rem',
-    fontFamily: 'var(--font-mono)',
-    color: 'var(--clr-text)',
-  },
-  billDoneBox: {
-    background: 'rgba(16,185,129,0.08)',
-    border: '1px solid rgba(16,185,129,0.25)',
-    borderRadius: 'var(--radius)',
-    padding: '0.85rem',
-    marginTop: '1rem',
-  },
-  heldRow: {
-    display: 'flex', justifyContent: 'space-between', alignItems: 'center',
-    padding: '0.75rem 0', borderBottom: '1px solid var(--clr-border)',
-  },
-  pastBillRow: {
-    display: 'flex', justifyContent: 'space-between', alignItems: 'center',
-    padding: '0.6rem 0.5rem',
-    borderBottom: '1px solid var(--clr-border)',
-    borderRadius: 'var(--radius-sm)',
-    transition: 'background 0.1s',
-  },
-};

@@ -6,7 +6,7 @@
 // Ghost Mode: Super Admin entering an admin shop — token backed up in sessionStorage
 
 import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
-import { authAPI } from '../utils/api';
+import { authAPI, superAdminAPI } from '../utils/api';
 import toast from 'react-hot-toast';
 
 /* ── Context ── */
@@ -62,6 +62,7 @@ export function AuthProvider({ children }) {
     sessionStorage.removeItem('sa_ghost_active');
     sessionStorage.removeItem('sa_token_backup');
     sessionStorage.removeItem('sa_user_backup');
+    sessionStorage.removeItem('pos_pin_token');
     setUser(null);
     setIsGhost(false);
   }, []);
@@ -83,6 +84,9 @@ export function AuthProvider({ children }) {
 
   /* ── Exit Ghost: return to Super Admin session ── */
   const exitGhost = useCallback((saToken, saUser) => {
+    // FIX (Issue #2): log the exit server-side before we discard the ghost
+    // token, so the audit trail has both entry and exit timestamps.
+    superAdminAPI.ghostExit().catch(() => { /* best-effort — don't block exit */ });
     localStorage.setItem('pos_token', saToken);
     localStorage.setItem('pos_user',  JSON.stringify(saUser));
     sessionStorage.removeItem('sa_ghost_active');

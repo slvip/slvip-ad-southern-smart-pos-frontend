@@ -35,11 +35,19 @@ const api = axios.create({
   headers: { 'Content-Type': 'application/json' },
 });
 
-/* ── Request interceptor: attach Bearer token ── */
+/* ── Request interceptor: attach Bearer token + Action PIN token ──
+   FIX (Issue #7): the backend now enforces Action PIN verification on
+   destructive routes (delete item/user/shop/staff, void bill, settings
+   reset) via the `x-pin-token` header. PinModal stores the short-lived
+   pinToken (returned from POST /auth/verify-pin) in sessionStorage under
+   'pos_pin_token' — we attach it to every request here so callers don't
+   need to thread it through manually. */
 api.interceptors.request.use(
   (config) => {
     const token = localStorage.getItem('pos_token');
     if (token) config.headers.Authorization = `Bearer ${token}`;
+    const pinToken = sessionStorage.getItem('pos_pin_token');
+    if (pinToken) config.headers['x-pin-token'] = pinToken;
     return config;
   },
   (error) => Promise.reject(error),
@@ -132,6 +140,9 @@ export const billingAPI = {
   voidBill:               (id, data) => api.put(`/billing/bills/${id}/void`, data),
   pushOfflineData:        (data)     => api.post('/sync/offline-push', data),  // Module 4
   getStockSnapshot:       (shopId)   => api.get(`/sync/stock-snapshot/${shopId}`), // Module 4 — true offline cache
+  // FIX 2: Optional customer WhatsApp receipt delivery (SPEC §5C item 62)
+  // Backend (Baileys) POST /billing/bills/:id/whatsapp { customerPhone }
+  sendWhatsAppReceipt:    (billId, data) => api.post(`/billing/bills/${billId}/whatsapp`, data),
 };
 
 /* ══════════════════════════════════════════════════════════════════════════
@@ -161,6 +172,7 @@ export const superAdminAPI = {
 
   /* ── Ghost Portal ── */
   ghostLogin:        (shopId, data) => api.post(`/super-admin/ghost/${shopId}`, data || {}),
+  ghostExit:         ()             => api.post('/super-admin/ghost/exit'),
   getGhostPinStatus: ()             => api.get('/super-admin/ghost-pin/status'),
   setGhostPin:       (data)         => api.post('/super-admin/ghost-pin/set', data),
   verifyMasterPassword: (pw)        => api.post('/auth/verify-master-password', { masterPassword: pw }),

@@ -1,10 +1,11 @@
 // AD SOUTHERN SMART POS — App Entry / Router
 // src/App.js
 
-import React, { Suspense, lazy } from 'react';
+import React, { Suspense, lazy, useEffect } from 'react';
 import { HashRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { Toaster } from 'react-hot-toast';
 import { AuthProvider, useAuth } from './context/AuthContext';
+import { initAutoSync } from './utils/offlineSync';
 
 // Lazy-loaded pages
 const LoginPage       = lazy(() => import('./pages/LoginPage'));
@@ -42,6 +43,7 @@ function FullPageSpinner() {
 
 /* ── App ──────────────────────────────────────────────────────────────────── */
 export default function App() {
+  useEffect(() => { initAutoSync(); }, []);
   return (
     <AuthProvider>
       <HashRouter>

@@ -51,6 +51,9 @@ export default function PinModal({ open, onSuccess, onClose, label = 'සංව�
       const res = await authAPI.verifyPin(pin);
       if (res.data.success) {
         toast.success('PIN සාර්ථකව තහවුරු කළා');
+        // FIX (Issue #7): persist pinToken so api.js automatically attaches
+        // it as `x-pin-token` on subsequent requests to PIN-protected routes.
+        if (res.data.pinToken) sessionStorage.setItem('pos_pin_token', res.data.pinToken);
         onSuccess(res.data.pinToken);
       }
     } catch (err) {

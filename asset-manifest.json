@@ -1,25 +1,25 @@
 {
   "files": {
     "main.css": "/slvip-ad-southern-smart-pos-frontend/static/css/main.611e2e6b.css",
-    "main.js": "/slvip-ad-southern-smart-pos-frontend/static/js/main.c662570d.js",
+    "main.js": "/slvip-ad-southern-smart-pos-frontend/static/js/main.5efb8e01.js",
     "static/js/93.7b26051e.chunk.js": "/slvip-ad-southern-smart-pos-frontend/static/js/93.7b26051e.chunk.js",
-    "static/js/874.75b408a4.chunk.js": "/slvip-ad-southern-smart-pos-frontend/static/js/874.75b408a4.chunk.js",
-    "static/js/48.ccdbea47.chunk.js": "/slvip-ad-southern-smart-pos-frontend/static/js/48.ccdbea47.chunk.js",
+    "static/js/874.e18e7a97.chunk.js": "/slvip-ad-southern-smart-pos-frontend/static/js/874.e18e7a97.chunk.js",
+    "static/js/48.85849876.chunk.js": "/slvip-ad-southern-smart-pos-frontend/static/js/48.85849876.chunk.js",
     "static/js/257.eb5a3a39.chunk.js": "/slvip-ad-southern-smart-pos-frontend/static/js/257.eb5a3a39.chunk.js",
     "static/js/948.abad0fc4.chunk.js": "/slvip-ad-southern-smart-pos-frontend/static/js/948.abad0fc4.chunk.js",
     "static/js/655.477af456.chunk.js": "/slvip-ad-southern-smart-pos-frontend/static/js/655.477af456.chunk.js",
     "index.html": "/slvip-ad-southern-smart-pos-frontend/index.html",
     "main.611e2e6b.css.map": "/slvip-ad-southern-smart-pos-frontend/static/css/main.611e2e6b.css.map",
-    "main.c662570d.js.map": "/slvip-ad-southern-smart-pos-frontend/static/js/main.c662570d.js.map",
+    "main.5efb8e01.js.map": "/slvip-ad-southern-smart-pos-frontend/static/js/main.5efb8e01.js.map",
     "93.7b26051e.chunk.js.map": "/slvip-ad-southern-smart-pos-frontend/static/js/93.7b26051e.chunk.js.map",
-    "874.75b408a4.chunk.js.map": "/slvip-ad-southern-smart-pos-frontend/static/js/874.75b408a4.chunk.js.map",
-    "48.ccdbea47.chunk.js.map": "/slvip-ad-southern-smart-pos-frontend/static/js/48.ccdbea47.chunk.js.map",
+    "874.e18e7a97.chunk.js.map": "/slvip-ad-southern-smart-pos-frontend/static/js/874.e18e7a97.chunk.js.map",
+    "48.85849876.chunk.js.map": "/slvip-ad-southern-smart-pos-frontend/static/js/48.85849876.chunk.js.map",
     "257.eb5a3a39.chunk.js.map": "/slvip-ad-southern-smart-pos-frontend/static/js/257.eb5a3a39.chunk.js.map",
     "948.abad0fc4.chunk.js.map": "/slvip-ad-southern-smart-pos-frontend/static/js/948.abad0fc4.chunk.js.map",
     "655.477af456.chunk.js.map": "/slvip-ad-southern-smart-pos-frontend/static/js/655.477af456.chunk.js.map"
   },
   "entrypoints": [
     "static/css/main.611e2e6b.css",
-    "static/js/main.c662570d.js"
+    "static/js/main.5efb8e01.js"
   ]
 }

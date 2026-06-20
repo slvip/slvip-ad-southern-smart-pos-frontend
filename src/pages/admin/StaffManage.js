@@ -1,5 +1,7 @@
 // AD SOUTHERN SMART POS — Staff Management (Module 2)
 // src/pages/admin/StaffManage.js
+//
+// UPDATED: Added PIN Reset (Admin can clear staff member's PIN so they must re-set it)
 
 import React, { useState, useEffect, useCallback } from 'react';
 import { adminAPI } from '../../utils/api';
@@ -14,15 +16,16 @@ const ROLES = [
 const EMPTY = { displayName: '', username: '', password: '', role: 'cashier' };
 
 export default function StaffManage() {
-  const [staff, setStaff]         = useState([]);
-  const [loading, setLoading]     = useState(true);
-  const [createOpen, setCreateOpen] = useState(false);
+  const [staff, setStaff]               = useState([]);
+  const [loading, setLoading]           = useState(true);
+  const [createOpen, setCreateOpen]     = useState(false);
   const [deleteTarget, setDeleteTarget] = useState(null);
-  const [resetTarget, setResetTarget] = useState(null);
-  const [form, setForm]           = useState(EMPTY);
-  const [formLoading, setFormLoading] = useState(false);
-  const [newPwd, setNewPwd]       = useState('');
-  const [showPwd, setShowPwd]     = useState(false);
+  const [resetTarget, setResetTarget]   = useState(null);
+  const [pinResetTarget, setPinResetTarget] = useState(null);
+  const [form, setForm]                 = useState(EMPTY);
+  const [formLoading, setFormLoading]   = useState(false);
+  const [newPwd, setNewPwd]             = useState('');
+  const [showPwd, setShowPwd]           = useState(false);
 
   const loadStaff = useCallback(() => {
     setLoading(true);
@@ -46,29 +49,32 @@ export default function StaffManage() {
     try {
       await adminAPI.createStaff(form);
       toast.success(`✅ ${form.displayName} (${form.role}) Add කළා`);
-      setCreateOpen(false);
-      setForm(EMPTY);
-      loadStaff();
+      setCreateOpen(false); setForm(EMPTY); loadStaff();
     } catch (err) {
       toast.error(err.response?.data?.message || 'Create error');
-    } finally {
-      setFormLoading(false);
-    }
+    } finally { setFormLoading(false); }
   };
 
-  const handleResetPin = async (e) => {
+  const handleResetPassword = async (e) => {
     e.preventDefault();
     if (newPwd.length < 8) { toast.error('Min 8 chars'); return; }
     setFormLoading(true);
     try {
       await adminAPI.resetStaffPin(resetTarget._id, { newPassword: newPwd });
       toast.success('Password Reset කළා');
-      setResetTarget(null);
-      setNewPwd('');
+      setResetTarget(null); setNewPwd('');
     } catch (err) {
       toast.error(err.response?.data?.message || 'Reset error');
-    } finally {
-      setFormLoading(false);
+    } finally { setFormLoading(false); }
+  };
+
+  const handleClearPin = async () => {
+    try {
+      const res = await adminAPI.clearStaffPin(pinResetTarget._id);
+      toast.success(res.data.message || `${pinResetTarget.displayName} ගේ PIN Reset කළා`);
+      setPinResetTarget(null);
+    } catch (err) {
+      toast.error(err.response?.data?.message || 'PIN Reset error');
     }
   };
 
@@ -97,6 +103,11 @@ export default function StaffManage() {
         <button className="btn btn-primary" onClick={() => { setForm(EMPTY); setCreateOpen(true); }}>
           + Staff Add කරන්න
         </button>
+      </div>
+
+      {/* PIN Info Banner */}
+      <div style={{ background: 'rgba(59,130,246,0.06)', border: '1px solid rgba(59,130,246,0.2)', borderRadius: 'var(--radius)', padding: '0.75rem 1rem', marginBottom: '1rem', fontSize: '0.82rem', color: 'var(--clr-text-muted)' }}>
+        🔐 <strong style={{ color: 'var(--clr-text)' }}>Personal PIN System:</strong> Admin, Manager, Cashier — සෑම Staff Member කෙනෙකු ලොගින් වූ පසු Settings > Security හිදී ස්වකීය Personal 4-Digit PIN set කළ යුතුය. Admin හට Staff ගේ PIN "Clear" කළ හැකි නමුත් ඔවුන් ගේ PIN කියෙවිය නොහැක.
       </div>
 
       {loading ? (
@@ -138,7 +149,8 @@ export default function StaffManage() {
                       </td>
                       <td style={{ textAlign: 'right' }}>
                         <div style={{ display: 'flex', gap: '0.4rem', justifyContent: 'flex-end' }}>
-                          <button className="btn btn-ghost btn-sm" onClick={() => { setResetTarget(s); setNewPwd(''); }} title="Reset Password">🔑</button>
+                          <button className="btn btn-ghost btn-sm" onClick={() => { setResetTarget(s); setNewPwd(''); }} title="Reset Password">🔑 Password</button>
+                          <button className="btn btn-ghost btn-sm" style={{ color: 'var(--clr-accent)' }} onClick={() => setPinResetTarget(s)} title="Clear PIN (staff must re-set)">🔐 PIN Clear</button>
                           <button className="btn btn-danger btn-sm" onClick={() => setDeleteTarget(s)}>🗑</button>
                         </div>
                       </td>
@@ -156,6 +168,9 @@ export default function StaffManage() {
         <div className="modal-overlay" onClick={() => setCreateOpen(false)}>
           <div className="modal" onClick={e => e.stopPropagation()} style={{ maxWidth: 460 }}>
             <div className="modal-title">👤 නව Staff Member</div>
+            <div style={{ background: 'rgba(59,130,246,0.06)', border: '1px solid rgba(59,130,246,0.2)', borderRadius: 'var(--radius-sm)', padding: '0.6rem 0.9rem', marginBottom: '1rem', fontSize: '0.78rem', color: 'var(--clr-text-muted)' }}>
+              💡 Staff Member Add කළ පසු, ඔහු/ඇය ලොගින් වූ විට Settings > Security හිදී ඔවුන්ගේ Personal PIN Set කිරීමට ඔවුන්ව දැනුවත් කරන්න.
+            </div>
             <form onSubmit={handleCreate}>
               <div className="form-group">
                 <label>Display Name *</label>
@@ -203,7 +218,7 @@ export default function StaffManage() {
             <p style={{ color: 'var(--clr-text-muted)', fontSize: '0.88rem', marginBottom: '1rem' }}>
               <strong>{resetTarget.displayName}</strong> ගේ නව password
             </p>
-            <form onSubmit={handleResetPin}>
+            <form onSubmit={handleResetPassword}>
               <div className="form-group" style={{ position: 'relative' }}>
                 <label>නව Password *</label>
                 <input
@@ -227,7 +242,28 @@ export default function StaffManage() {
         </div>
       )}
 
-      {/* Delete — simple confirm (no master pwd for staff) */}
+      {/* PIN Clear Confirm Modal */}
+      {pinResetTarget && (
+        <div className="modal-overlay" onClick={() => setPinResetTarget(null)}>
+          <div className="modal" onClick={e => e.stopPropagation()} style={{ maxWidth: 420 }}>
+            <div className="modal-title" style={{ color: 'var(--clr-accent)' }}>🔐 Staff PIN Clear කරන්නද?</div>
+            <p style={{ color: 'var(--clr-text-muted)', marginBottom: '0.75rem' }}>
+              <strong>{pinResetTarget.displayName}</strong> ගේ Action PIN Remove කෙරේ.
+            </p>
+            <div style={{ background: 'rgba(245,158,11,0.1)', border: '1px solid rgba(245,158,11,0.3)', borderRadius: 'var(--radius-sm)', padding: '0.65rem 0.9rem', fontSize: '0.82rem', color: 'var(--clr-accent)', marginBottom: '1.25rem', lineHeight: 1.5 }}>
+              ⚠️ PIN Clear කළ පසු, ඊළඟ ලොගින් Session එකේදී Staff Member ස්වකීයව Settings → Security හිදී නව PIN Set කළ යුතුය. ඔවුන් PIN Set කරන තෙක් Sensitive Tabs block වේ.
+            </div>
+            <div style={{ display: 'flex', gap: '0.75rem' }}>
+              <button className="btn btn-ghost btn-full" onClick={() => setPinResetTarget(null)}>Cancel</button>
+              <button className="btn btn-full" style={{ background: 'rgba(245,158,11,0.15)', color: 'var(--clr-accent)', border: '1px solid rgba(245,158,11,0.4)' }} onClick={handleClearPin}>
+                🔐 PIN Clear කරන්න
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Delete */}
       {deleteTarget && (
         <div className="modal-overlay" onClick={() => setDeleteTarget(null)}>
           <div className="modal" onClick={e => e.stopPropagation()} style={{ maxWidth: 380 }}>

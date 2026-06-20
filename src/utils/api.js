@@ -69,6 +69,8 @@ export const authAPI = {
   logout:         ()      => api.post('/auth/logout'),
   me:             ()      => api.get('/auth/me'),
   verifyPin:      (pin)   => api.post('/auth/verify-pin', { pin }),
+  setPín:         (data)  => api.post('/auth/set-pin', data),
+  pinStatus:      ()      => api.get('/auth/pin-status'),
   changePassword: (data)  => api.put('/auth/change-password', data),  // FIX 5
 };
 
@@ -96,6 +98,7 @@ export const adminAPI = {
   updateStaff:     (id, data)   => api.put(`/admin/staff/${id}`, data),
   deleteStaff:     (id)         => api.delete(`/admin/staff/${id}`),
   resetStaffPin:   (id, data)   => api.put(`/admin/staff/${id}/reset-password`, data),
+  clearStaffPin:   (id)         => api.put(`/admin/staff/${id}/reset-pin`),  // PIN clear
 
   /* ── Cheque Manager ── */
   getCheques:          ()       => api.get('/admin/cheques'),
@@ -127,6 +130,7 @@ export const billingAPI = {
   getBill:                (id)       => api.get(`/billing/bills/${id}`),
   voidBill:               (id, data) => api.put(`/billing/bills/${id}/void`, data),
   pushOfflineData:        (data)     => api.post('/sync/offline-push', data),  // Module 4
+  getStockSnapshot:       (shopId)   => api.get(`/sync/stock-snapshot/${shopId}`), // Module 4 — true offline cache
 };
 
 /* ══════════════════════════════════════════════════════════════════════════

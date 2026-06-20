@@ -4,7 +4,7 @@
 // ✅ Features implemented:
 //   • USB/Bluetooth Hardware Barcode Scanner (keydown buffer)
 //   • QuaggaJS Camera Scanner (CamBarcodeScanner component)
-//   • Keyboard Shortcuts: F2 Search | Enter Add | +/- Qty | F4 Hold | F5 Retrieve | Esc Clear | F10 Checkout
+//   • Keyboard Shortcuts: F2 Search | Enter Add | +/- Qty | F4 Hold | F5 Retrieve | Esc Clear | Space Checkout
 //   • Hold Bill (F4) + Retrieve Held Bills (F5)
 //   • Past Bills Search (Bill # or Date) + Reprint
 //   • Checkout Modal: Cash / Card / Transfer + Change Calculator
@@ -21,87 +21,31 @@ import React, {
 import { billingAPI } from '../../utils/api';
 import { useAuth } from '../../context/AuthContext';
 import toast from 'react-hot-toast';
+import {
+  saveOfflineBill, saveOfflineHold, getOfflineHolds, deleteOfflineHold,
+  refreshStockSnapshot, searchOfflineItems, getOfflineItemByBarcode,
+  decrementOfflineStock, restoreOfflineStock,
+} from '../../utils/offlineSync';
 
 // Lazy-load camera scanner to avoid QuaggaJS loading when not needed
 const CamBarcodeScanner = lazy(() => import('../../components/CamBarcodeScanner'));
 
 /* ─────────────────────────────────────────────────────────────
-   OFFLINE IndexedDB helper (mirrors Module 4 offlineSync)
+   NOTE — MODULE 4 GAP FIX:
+   The IndexedDB helpers (saveOfflineBill / saveOfflineHold /
+   getOfflineHolds / deleteOfflineHold / item-cache functions) now
+   live in a single shared module: src/utils/offlineSync.js.
+   Previously this file duplicated its own copies of these
+   functions, opened at IndexedDB version 1 with only
+   'pendingBills' + 'heldBills' stores — that meant item SEARCH
+   and BARCODE lookup and stock DECREMENT had no offline data
+   source at all once the network actually dropped (only bill /
+   hold queuing worked). offlineSync.js now also owns a v2 schema
+   with a 'stockItems' store that mirrors the server's inventory,
+   refreshed opportunistically while online and read/written
+   locally while offline — see handleSearch / lookupBarcode /
+   addToCart / removeFromCart below.
 ───────────────────────────────────────────────────────────── */
-async function saveOfflineBill(shopId, billData) {
-  return new Promise((resolve, reject) => {
-    const req = indexedDB.open(`pos_offline_${shopId}`, 1);
-    req.onupgradeneeded = (e) => {
-      const db = e.target.result;
-      if (!db.objectStoreNames.contains('pendingBills')) {
-        db.createObjectStore('pendingBills', { keyPath: 'localId', autoIncrement: true });
-      }
-      if (!db.objectStoreNames.contains('heldBills')) {
-        db.createObjectStore('heldBills', { keyPath: 'localId', autoIncrement: true });
-      }
-    };
-    req.onsuccess = (e) => {
-      const db    = e.target.result;
-      const tx    = db.transaction('pendingBills', 'readwrite');
-      const store = tx.objectStore('pendingBills');
-      store.add({ ...billData, savedAt: Date.now() });
-      tx.oncomplete = () => resolve();
-      tx.onerror    = () => reject(tx.error);
-    };
-    req.onerror = () => reject(req.error);
-  });
-}
-
-async function saveOfflineHold(shopId, holdData) {
-  return new Promise((resolve, reject) => {
-    const req = indexedDB.open(`pos_offline_${shopId}`, 1);
-    req.onupgradeneeded = (e) => {
-      const db = e.target.result;
-      if (!db.objectStoreNames.contains('heldBills')) {
-        db.createObjectStore('heldBills', { keyPath: 'localId', autoIncrement: true });
-      }
-    };
-    req.onsuccess = (e) => {
-      const db    = e.target.result;
-      const tx    = db.transaction('heldBills', 'readwrite');
-      const store = tx.objectStore('heldBills');
-      store.add({ ...holdData, savedAt: Date.now() });
-      tx.oncomplete = () => resolve();
-      tx.onerror    = () => reject(tx.error);
-    };
-    req.onerror = () => reject(req.error);
-  });
-}
-
-async function getOfflineHolds(shopId) {
-  return new Promise((resolve) => {
-    const req = indexedDB.open(`pos_offline_${shopId}`, 1);
-    req.onsuccess = (e) => {
-      const db    = e.target.result;
-      if (!db.objectStoreNames.contains('heldBills')) { resolve([]); return; }
-      const tx    = db.transaction('heldBills', 'readonly');
-      const store = tx.objectStore('heldBills');
-      const all   = store.getAll();
-      all.onsuccess = () => resolve(all.result || []);
-      all.onerror   = () => resolve([]);
-    };
-    req.onerror = () => resolve([]);
-  });
-}
-
-async function deleteOfflineHold(shopId, localId) {
-  return new Promise((resolve) => {
-    const req = indexedDB.open(`pos_offline_${shopId}`, 1);
-    req.onsuccess = (e) => {
-      const db    = e.target.result;
-      const tx    = db.transaction('heldBills', 'readwrite');
-      tx.objectStore('heldBills').delete(localId);
-      tx.oncomplete = () => resolve();
-      tx.onerror    = () => resolve();
-    };
-    req.onerror = () => resolve();
-  });
-}
 
 /* ─────────────────────────────────────────────────────────────
    MAIN COMPONENT
@@ -139,7 +83,12 @@ export default function BillingPOS() {
 
   /* ── Online/Offline tracking ── */
   useEffect(() => {
-    const goOnline  = () => setIsOffline(false);
+    const goOnline  = () => {
+      setIsOffline(false);
+      // MODULE 4 GAP FIX: re-pull the latest stock snapshot the moment
+      // connectivity returns, so the offline cache doesn't go stale.
+      if (shopId) refreshStockSnapshot(shopId, billingAPI).catch(() => {});
+    };
     const goOffline = () => { setIsOffline(true); toast('📴 Offline — Bills IndexedDB ට Save වේ', { icon: '📴' }); };
     window.addEventListener('online',  goOnline);
     window.addEventListener('offline', goOffline);
@@ -147,7 +96,18 @@ export default function BillingPOS() {
       window.removeEventListener('online',  goOnline);
       window.removeEventListener('offline', goOffline);
     };
-  }, []);
+  }, [shopId]);
+
+  /* ── MODULE 4 GAP FIX: prime the offline item cache as soon as the POS
+     screen mounts (while online), so the very first offline sale of the
+     day already has a usable local stock mirror — not just after the
+     first 'online' event fires later. ── */
+  useEffect(() => {
+    if (shopId && !isOffline) {
+      refreshStockSnapshot(shopId, billingAPI).catch(() => {});
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [shopId]);
 
   /* ── Load cosmetic rate ── */
   useEffect(() => {
@@ -200,7 +160,13 @@ export default function BillingPOS() {
       if (e.key === 'F2')  { e.preventDefault(); searchRef.current?.focus(); }
       if (e.key === 'F4')  { e.preventDefault(); if (!inInput) handleHold(); }
       if (e.key === 'F5')  { e.preventDefault(); if (!inInput) openHeldBills(); }
-      if (e.key === 'F10') { e.preventDefault(); if (cart.length > 0) setCheckoutOpen(true); }
+      // MODULE 3 SPEC FIX: Checkout is bound to Spacebar (not F10).
+      // Guarded by !inInput so a space typed into the search box or any
+      // other input/textarea still types a normal space character.
+      if ((e.key === ' ' || e.code === 'Space') && !inInput) {
+        e.preventDefault();
+        if (cart.length > 0) setCheckoutOpen(true);
+      }
       if (e.key === 'Escape') {
         e.preventDefault();
         if (checkoutOpen)  { setCheckoutOpen(false); return; }
@@ -227,14 +193,32 @@ export default function BillingPOS() {
     clearTimeout(searchTimer.current);
     if (!q || q.length < 1) { setSearchResults([]); return; }
     searchTimer.current = setTimeout(async () => {
+      // MODULE 4 GAP FIX: true offline search — read the local stockItems
+      // cache instead of hitting the network (which would just fail/hang).
+      if (isOffline) {
+        try {
+          const items = await searchOfflineItems(shopId, q);
+          setSearchResults(items);
+        } catch { setSearchResults([]); }
+        return;
+      }
       try {
         const res = await billingAPI.searchItems(q);
         setSearchResults(res.data.items || []);
       } catch { setSearchResults([]); }
     }, 180); // 180ms debounce
-  }, []);
+  }, [isOffline, shopId]);
 
   const lookupBarcode = async (code) => {
+    // MODULE 4 GAP FIX: offline barcode lookup via local cache.
+    if (isOffline) {
+      try {
+        const item = await getOfflineItemByBarcode(shopId, code);
+        if (item) { addToCart(item); toast.success(`✅ ${item.name} — Added (Offline)`); }
+        else toast.error(`Barcode ${code} — Item හමු නොවීය (Offline Cache)`);
+      } catch { toast.error('Barcode lookup error (Offline)'); }
+      return;
+    }
     try {
       const res = await billingAPI.getItemByBarcode(code);
       const item = res.data.item;
@@ -262,6 +246,12 @@ export default function BillingPOS() {
       }
       return [...prev, { ...item, qty: 1 }];
     });
+    // MODULE 4 GAP FIX: while offline, reserve the unit against the local
+    // cache immediately so a second offline sale of the same item in the
+    // same shift can't oversell stock that's already sitting in this cart.
+    if (isOffline && item._id) {
+      decrementOfflineStock(shopId, item._id, 1).catch(() => {});
+    }
     setSearchQ('');
     setSearchResults([]);
     setTimeout(() => searchRef.current?.focus(), 50);
@@ -274,12 +264,35 @@ export default function BillingPOS() {
       if (delta > 0 && c.quantity !== undefined && newQty > c.quantity) {
         toast.error(`Stock සීමාව: ${c.quantity}`); return c;
       }
+      // MODULE 4 GAP FIX: keep the offline cache's reserved quantity in
+      // sync as the cashier nudges qty up/down with +/-.
+      if (isOffline && newQty !== c.qty) {
+        const diff = newQty - c.qty; // positive = reserve more, negative = release
+        if (diff > 0) decrementOfflineStock(shopId, id, diff).catch(() => {});
+        else restoreOfflineStock(shopId, id, -diff).catch(() => {});
+      }
       return { ...c, qty: newQty };
     }));
   };
 
-  const removeFromCart = (id) => setCart(prev => prev.filter(c => c._id !== id));
-  const clearCart = () => { setCart([]); setBillDone(null); };
+  const removeFromCart = (id) => {
+    setCart(prev => {
+      const removed = prev.find(c => c._id === id);
+      // MODULE 4 GAP FIX: release the reserved offline stock back to the cache.
+      if (isOffline && removed) {
+        restoreOfflineStock(shopId, id, removed.qty).catch(() => {});
+      }
+      return prev.filter(c => c._id !== id);
+    });
+  };
+  const clearCart = () => {
+    // MODULE 4 GAP FIX: clearing the cart (Esc) releases all reservations
+    // back to the local offline stock cache instead of "losing" the units.
+    if (isOffline && cart.length > 0) {
+      cart.forEach(c => restoreOfflineStock(shopId, c._id, c.qty).catch(() => {}));
+    }
+    setCart([]); setBillDone(null);
+  };
 
   /* ── Totals ── */
   const subtotal       = cart.reduce((s, c) => s + c.sellingPrice * c.qty, 0);
@@ -623,7 +636,7 @@ export default function BillingPOS() {
             {[
               ['F2','Search'],['Enter','Add'],
               ['+/−','Qty'],['F4','Hold'],
-              ['F5','Retrieve'],['F10','Checkout'],['Esc','Clear'],
+              ['F5','Retrieve'],['Space','Checkout'],['Esc','Clear'],
             ].map(([k, v]) => (
               <span key={k} style={styles.shortcutChip}>
                 <kbd style={styles.kbdKey}>{k}</kbd> {v}
@@ -676,7 +689,7 @@ export default function BillingPOS() {
               disabled={cart.length === 0 || loading}
               onClick={() => setCheckoutOpen(true)}
             >
-              {loading ? '⏳ Processing...' : '✅ Checkout (F10)'}
+              {loading ? '⏳ Processing...' : '✅ Checkout (Space)'}
             </button>
             <button
               className="btn btn-ghost btn-full"

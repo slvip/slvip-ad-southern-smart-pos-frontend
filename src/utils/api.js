@@ -159,7 +159,10 @@ export const superAdminAPI = {
   resetUserPassword: (id, data) => api.put(`/super-admin/users/${id}/reset-password`, data), // FIX 4
 
   /* ── Ghost Portal ── */
-  ghostLogin:    (shopId)      => api.post(`/super-admin/ghost/${shopId}`),
+  ghostLogin:        (shopId, data) => api.post(`/super-admin/ghost/${shopId}`, data || {}),
+  getGhostPinStatus: ()             => api.get('/super-admin/ghost-pin/status'),
+  setGhostPin:       (data)         => api.post('/super-admin/ghost-pin/set', data),
+  verifyMasterPassword: (pw)        => api.post('/api/auth/verify-master-password', { masterPassword: pw }),
 
   /* ── Audit Logs (global) ── */
   getAuditLogs:    (params)    => api.get('/super-admin/audit', { params }),

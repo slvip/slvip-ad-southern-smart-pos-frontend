@@ -75,11 +75,16 @@ export default function BillingPOS() {
   const [voidBillTarget, setVoidBillTarget] = useState(null);
   const [selectedPastBill, setSelectedPastBill] = useState(null);
 
+  // FRACTIONAL ITEM: Quick Weight Pop-up state
+  const [weightModal,    setWeightModal]    = useState(null);  // { item } or null
+  const [weightInput,    setWeightInput]    = useState('');    // gram input string
+
   /* ── Refs ── */
   const searchRef     = useRef();
   const barcodeBuffer = useRef('');
   const barcodeTimer  = useRef(null);
   const recognitionRef = useRef(null);
+  const weightInputRef = useRef(null);
 
   /* ── Online/Offline tracking ── */
   useEffect(() => {
@@ -230,9 +235,19 @@ export default function BillingPOS() {
   /* ─────────────────────────────────────────────────────────
      CART OPERATIONS
   ──────────────────────────────────────────────────────────*/
+  // FRACTIONAL: kg/l items → show weight popup; normal items → add qty 1
   const addToCart = (item) => {
     if (item.quantity !== undefined && item.quantity <= 0) {
       toast.error(`${item.name} — Stock නොමැත`); return;
+    }
+    if (item.isFractional) {
+      // Show weight selection popup
+      setWeightModal(item);
+      setWeightInput('');
+      setSearchQ('');
+      setSearchResults([]);
+      setTimeout(() => weightInputRef.current?.focus(), 80);
+      return;
     }
     setCart(prev => {
       const existing = prev.find(c => c._id === item._id);
@@ -246,9 +261,6 @@ export default function BillingPOS() {
       }
       return [...prev, { ...item, qty: 1 }];
     });
-    // MODULE 4 GAP FIX: while offline, reserve the unit against the local
-    // cache immediately so a second offline sale of the same item in the
-    // same shift can't oversell stock that's already sitting in this cart.
     if (isOffline && item._id) {
       decrementOfflineStock(shopId, item._id, 1).catch(() => {});
     }
@@ -257,17 +269,55 @@ export default function BillingPOS() {
     setTimeout(() => searchRef.current?.focus(), 50);
   };
 
+  // FRACTIONAL: quick-button OR manual gram input → confirm weight → add to cart
+  const confirmWeight = (kgValue) => {
+    const item = weightModal;
+    if (!item) return;
+    const kg = Math.round(parseFloat(kgValue) * 1000) / 1000; // 3dp
+    if (!kg || kg <= 0) { toast.error('බරක් ඇතුළත් කරන්න'); return; }
+    if (item.quantity !== undefined && kg > item.quantity) {
+      toast.error(`Stock සීමාව: ${item.quantity} kg`); return;
+    }
+    setCart(prev => {
+      const existing = prev.find(c => c._id === item._id);
+      if (existing) {
+        const newQty = Math.round((existing.qty + kg) * 1000) / 1000;
+        return prev.map(c => c._id === item._id ? { ...c, qty: newQty } : c);
+      }
+      return [...prev, { ...item, qty: kg }];
+    });
+    if (isOffline && item._id) {
+      decrementOfflineStock(shopId, item._id, kg).catch(() => {});
+    }
+    setWeightModal(null);
+    setWeightInput('');
+    setTimeout(() => searchRef.current?.focus(), 50);
+  };
+
+  // gram input (eg user types "150") → auto-convert to kg (0.150)
+  const handleWeightManualInput = (raw) => {
+    setWeightInput(raw);
+  };
+  const handleWeightConfirmManual = () => {
+    const raw = parseFloat(weightInput);
+    if (!raw || raw <= 0) { toast.error('බරක් ඇතුළත් කරන්න'); return; }
+    // If value > 10, assume it's grams → convert to kg
+    const kg = raw > 10 ? raw / 1000 : raw;
+    confirmWeight(kg);
+  };
+
   const changeQty = (id, delta) => {
     setCart(prev => prev.map(c => {
       if (c._id !== id) return c;
-      const newQty = Math.max(1, c.qty + delta);
+      // Fractional items: step in 50g (0.050) increments; normal: step 1
+      const step   = c.isFractional ? 0.050 : 1;
+      const minQty = c.isFractional ? 0.050 : 1;
+      const newQty = Math.round(Math.max(minQty, c.qty + delta * step) * 1000) / 1000;
       if (delta > 0 && c.quantity !== undefined && newQty > c.quantity) {
-        toast.error(`Stock සීමාව: ${c.quantity}`); return c;
+        toast.error(`Stock සීමාව: ${c.quantity} ${c.unit || ''}`); return c;
       }
-      // MODULE 4 GAP FIX: keep the offline cache's reserved quantity in
-      // sync as the cashier nudges qty up/down with +/-.
       if (isOffline && newQty !== c.qty) {
-        const diff = newQty - c.qty; // positive = reserve more, negative = release
+        const diff = newQty - c.qty;
         if (diff > 0) decrementOfflineStock(shopId, id, diff).catch(() => {});
         else restoreOfflineStock(shopId, id, -diff).catch(() => {});
       }
@@ -548,9 +598,11 @@ export default function BillingPOS() {
                   onClick={() => addToCart(item)}
                 >
                   <div>
-                    <div style={{ fontWeight: 600, fontSize: '0.88rem' }}>{item.name}</div>
+                    <div style={{ fontWeight: 600, fontSize: '0.88rem' }}>
+                      {item.isFractional && '⚖️ '}{item.name}
+                    </div>
                     <div style={{ fontSize: '0.71rem', color: 'var(--clr-text-muted)' }}>
-                      {item.sku} &nbsp;|&nbsp; Stock: {item.quantity ?? '?'} {item.unit}
+                      {item.sku} &nbsp;|&nbsp; Stock: {item.isFractional ? `${item.quantity} kg` : `${item.quantity ?? '?'} ${item.unit}`}
                       {item.quantity <= 5 && item.quantity > 0 && (
                         <span style={{ color: 'var(--clr-accent)', marginLeft: 6 }}>⚠️ Low</span>
                       )}
@@ -560,7 +612,7 @@ export default function BillingPOS() {
                     </div>
                   </div>
                   <div style={{ fontWeight: 700, color: 'var(--clr-success)', fontSize: '0.9rem', whiteSpace: 'nowrap' }}>
-                    රු.{Number(item.sellingPrice).toLocaleString()}
+                    රු.{Number(item.sellingPrice).toLocaleString()}{item.isFractional ? '/kg' : ''}
                   </div>
                 </div>
               ))}
@@ -599,7 +651,10 @@ export default function BillingPOS() {
                   {cart.map(item => (
                     <tr key={item._id} style={{ borderBottom: '1px solid var(--clr-border)' }}>
                       <td style={{ padding: '0.5rem 0.6rem' }}>
-                        <div style={{ fontWeight: 600, fontSize: '0.87rem' }}>{item.name}</div>
+                        <div style={{ fontWeight: 600, fontSize: '0.87rem' }}>
+                          {item.isFractional && <span style={{ fontSize: '0.75rem', marginRight: 4 }}>⚖️</span>}
+                          {item.name}
+                        </div>
                         <div style={{ fontSize: '0.69rem', color: 'var(--clr-text-muted)' }}>
                           {item.unit} {item.sku ? `· ${item.sku}` : ''}
                         </div>
@@ -607,15 +662,23 @@ export default function BillingPOS() {
                       <td style={{ textAlign: 'right', padding: '0.5rem 0.4rem' }}>
                         <div style={{ display: 'flex', alignItems: 'center', gap: '0.3rem', justifyContent: 'flex-end' }}>
                           <button style={styles.qtyBtn} onClick={() => changeQty(item._id, -1)}>−</button>
-                          <span style={{ fontWeight: 700, minWidth: 28, textAlign: 'center' }}>{item.qty}</span>
+                          <span style={{ fontWeight: 700, minWidth: 38, textAlign: 'center', fontSize: item.isFractional ? '0.8rem' : '1rem' }}>
+                            {item.isFractional
+                              ? `${(item.qty * 1000).toFixed(0)}g`  // 0.250 → 250g
+                              : item.qty
+                            }
+                          </span>
                           <button style={styles.qtyBtn} onClick={() => changeQty(item._id, +1)}>+</button>
                         </div>
                       </td>
                       <td style={{ textAlign: 'right', padding: '0.5rem 0.4rem', color: 'var(--clr-text-muted)', fontSize: '0.82rem' }}>
-                        රු.{Number(item.sellingPrice).toLocaleString()}
+                        {item.isFractional
+                          ? `රු.${Number(item.sellingPrice).toLocaleString()}/kg`
+                          : `රු.${Number(item.sellingPrice).toLocaleString()}`
+                        }
                       </td>
                       <td style={{ textAlign: 'right', padding: '0.5rem 0.6rem', fontWeight: 700, color: 'var(--clr-success)' }}>
-                        රු.{(item.sellingPrice * item.qty).toLocaleString()}
+                        රු.{(Math.round(item.sellingPrice * item.qty * 100) / 100).toLocaleString('en-LK', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                       </td>
                       <td style={{ textAlign: 'center', padding: '0.5rem 0.4rem' }}>
                         <button
@@ -882,6 +945,85 @@ export default function BillingPOS() {
                 onClose={() => setCamScanOpen(false)}
               />
             </Suspense>
+          </div>
+        </div>
+      )}
+
+      {/* ⚖️ FRACTIONAL WEIGHT SELECTION MODAL */}
+      {weightModal && (
+        <div className="modal-overlay" onClick={() => { setWeightModal(null); setWeightInput(''); }}>
+          <div className="modal" onClick={e => e.stopPropagation()} style={{ maxWidth: 360 }}>
+            <div className="modal-title" style={{ marginBottom: '0.25rem' }}>
+              ⚖️ {weightModal.name}
+            </div>
+            <div style={{ fontSize: '0.78rem', color: 'var(--clr-text-muted)', marginBottom: '1.2rem' }}>
+              රු.{Number(weightModal.sellingPrice).toLocaleString()} / kg &nbsp;|&nbsp; Stock: {weightModal.quantity} kg
+            </div>
+
+            {/* Quick Weight Buttons */}
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: '0.4rem', marginBottom: '1.1rem' }}>
+              {[
+                { label: '100g', kg: 0.100 },
+                { label: '250g', kg: 0.250 },
+                { label: '500g', kg: 0.500 },
+                { label: '750g', kg: 0.750 },
+                { label: '1 kg', kg: 1.000 },
+              ].map(({ label, kg }) => (
+                <button
+                  key={label}
+                  onClick={() => confirmWeight(kg)}
+                  style={{
+                    padding: '0.6rem 0.2rem',
+                    borderRadius: 8,
+                    border: '1.5px solid var(--clr-primary)',
+                    background: 'rgba(99,102,241,0.08)',
+                    color: 'var(--clr-primary)',
+                    fontWeight: 700,
+                    fontSize: '0.82rem',
+                    cursor: 'pointer',
+                    transition: 'background 0.15s',
+                  }}
+                  onMouseOver={e => e.currentTarget.style.background = 'rgba(99,102,241,0.2)'}
+                  onMouseOut={e  => e.currentTarget.style.background = 'rgba(99,102,241,0.08)'}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+
+            {/* Manual gram/kg input */}
+            <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center', marginBottom: '1rem' }}>
+              <input
+                ref={weightInputRef}
+                type="number"
+                min="0"
+                step="0.001"
+                value={weightInput}
+                onChange={e => handleWeightManualInput(e.target.value)}
+                onKeyDown={e => { if (e.key === 'Enter') handleWeightConfirmManual(); if (e.key === 'Escape') { setWeightModal(null); setWeightInput(''); } }}
+                placeholder="ග්‍රෑම් හෝ kg ටයිප් කරන්න (eg: 150)"
+                style={{
+                  flex: 1, padding: '0.55rem 0.75rem', borderRadius: 8,
+                  border: '1.5px solid var(--clr-border)',
+                  background: 'var(--clr-surface-2)',
+                  color: 'var(--clr-text)',
+                  fontSize: '0.95rem',
+                }}
+              />
+              <button
+                onClick={handleWeightConfirmManual}
+                className="btn btn-primary"
+                style={{ padding: '0.55rem 1rem', whiteSpace: 'nowrap' }}
+              >
+                ✅ Add
+              </button>
+            </div>
+            <div style={{ fontSize: '0.72rem', color: 'var(--clr-text-dim)', textAlign: 'center', marginBottom: '0.75rem' }}>
+              💡 10 ට වැඩි ඉලක්කමක් ඇතුළත් කළ හොත් ස්වයංක්‍රීයව ග්‍රෑම් ලෙස හඳුනා ගනී (150 → 0.150 kg)
+            </div>
+            <button className="btn btn-ghost btn-full" onClick={() => { setWeightModal(null); setWeightInput(''); }}>
+              අවලංගු
+            </button>
           </div>
         </div>
       )}

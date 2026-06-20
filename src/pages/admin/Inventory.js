@@ -32,14 +32,14 @@ const SUB_CATEGORIES = {
 const EMPTY_ITEM = {
   name: '', sku: '', subCategory: '', unit: '', costPrice: '', sellingPrice: '',
   quantity: '', minQuantity: 10, expiryDate: '', barcode: '', description: '',
+  isFractional: false,  // දශම ප්‍රමාණ (kg/l)? true = weighed item
 };
 
-/* Auto-generate SKU */
-const genSKU = (category, subCat, existingCount) => {
-  const catCode = (category || 'OTH').slice(0, 3).toUpperCase();
-  const subCode = (subCat || 'GEN').slice(0, 3).toUpperCase();
+/* Auto-generate SKU — භාණ්ඩ නමේ මුල් අකුරු 3 + අනුක්‍රම (eg: Parippu → PAR-001) */
+const genSKU = (itemName, existingCount) => {
+  const nameCode = (itemName || 'ITM').replace(/[^a-zA-Z]/g, '').slice(0, 3).toUpperCase() || 'ITM';
   const num = String((existingCount || 0) + 1).padStart(3, '0');
-  return `${catCode}-${subCode}-${num}`;
+  return `${nameCode}-${num}`;
 };
 
 export default function Inventory() {
@@ -102,17 +102,18 @@ export default function Inventory() {
     setModalOpen(true);
   };
 
-  // Auto-generate SKU when subCategory changes in create mode
+  // Auto-generate SKU when product NAME changes in create mode
+  // භාණ්ඩ නමේ මුල් අකුරු 3 + අනුක්‍රම (PAR-001, SUG-002, etc.)
   useEffect(() => {
-    if (!editTarget && form.subCategory) {
-      set('sku', genSKU(category, form.subCategory, items.length));
+    if (!editTarget && form.name && form.name.length >= 2) {
+      set('sku', genSKU(form.name, items.length));
     }
-  }, [form.subCategory, editTarget, category, items.length]);
+  }, [form.name, editTarget, items.length]);
 
   const handleSave = async (e) => {
     e.preventDefault();
-    if (!form.name || !form.unit || !form.sellingPrice || !form.quantity) {
-      toast.error('නම, Unit, Selling Price, Quantity අවශ්‍යයි'); return;
+    if (!form.name || !form.unit || !form.sellingPrice) {
+      toast.error('නම, Unit, Selling Price අවශ්‍යයි'); return;
     }
     setFormLoading(true);
     try {
@@ -375,14 +376,36 @@ export default function Inventory() {
                   </select>
                 </div>
               </div>
+              {/* FRACTIONAL STOCK TOGGLE */}
+              <div className="form-group" style={{ marginBottom: '0.75rem' }}>
+                <label style={{ display: 'flex', alignItems: 'center', gap: '0.6rem', cursor: 'pointer', userSelect: 'none' }}>
+                  <input
+                    type="checkbox"
+                    checked={form.isFractional}
+                    onChange={e => {
+                      set('isFractional', e.target.checked);
+                      if (e.target.checked) set('unit', 'kg');
+                      else set('unit', 'Nos');
+                    }}
+                    style={{ width: 16, height: 16, accentColor: 'var(--clr-primary)' }}
+                  />
+                  <span>⚖️ <strong>තරාදි භාණ්ඩයක් (Weighed Item)</strong> — kg / l ගණනින් කිරා විකිණේ</span>
+                </label>
+                {form.isFractional && (
+                  <div style={{ marginTop: 6, fontSize: '0.78rem', color: 'var(--clr-text-muted)', background: 'rgba(99,102,241,0.05)', padding: '0.4rem 0.7rem', borderRadius: 6 }}>
+                    💡 බිල්කිරීමේදී 100g / 250g / 500g / 750g / 1kg Quick Buttons ලැබේ
+                  </div>
+                )}
+              </div>
+
               <div className="form-row">
                 <div className="form-group">
-                  <label>SKU (Auto)</label>
+                  <label>SKU (Auto — නම අනුව)</label>
                   <input value={form.sku} onChange={e => set('sku', e.target.value)} placeholder="Auto-generated" />
                 </div>
                 <div className="form-group">
-                  <label>Barcode</label>
-                  <input value={form.barcode} onChange={e => set('barcode', e.target.value)} placeholder="8901234567890" />
+                  <label>Barcode (හිස් = Auto EAN-13)</label>
+                  <input value={form.barcode} onChange={e => set('barcode', e.target.value)} placeholder="හිස් = ස්වයංක්‍රීය" />
                 </div>
               </div>
               <div className="form-row">
@@ -397,12 +420,19 @@ export default function Inventory() {
               </div>
               <div className="form-row">
                 <div className="form-group">
-                  <label>Quantity *</label>
-                  <input type="number" min="0" value={form.quantity} onChange={e => set('quantity', e.target.value)} placeholder="0" />
+                  <label>{form.isFractional ? 'ආරම්භක තොගය (kg / l)' : 'Quantity *'}</label>
+                  <input
+                    type="number"
+                    min="0"
+                    step={form.isFractional ? '0.001' : '1'}
+                    value={form.quantity}
+                    onChange={e => set('quantity', e.target.value)}
+                    placeholder={form.isFractional ? '0.000 (kg)' : '0'}
+                  />
                 </div>
                 <div className="form-group">
                   <label>Min Qty (Low Stock Alert)</label>
-                  <input type="number" min="0" value={form.minQuantity} onChange={e => set('minQuantity', e.target.value)} />
+                  <input type="number" min="0" step={form.isFractional ? '0.001' : '1'} value={form.minQuantity} onChange={e => set('minQuantity', e.target.value)} />
                 </div>
               </div>
               <div className="form-group">

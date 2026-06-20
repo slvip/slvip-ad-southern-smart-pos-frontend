@@ -22,7 +22,6 @@ export default function SAGhostPortal() {
   const [newGhostPin,   setNewGhostPin]   = useState('');
   const [pinStatus,     setPinStatus]     = useState(null);  // { ghostPinSet, ghostPinSetAt }
   const [pinLoading,    setPinLoading]    = useState(false);
-  const [masterPWValid, setMasterPWValid] = useState(false); // stage 1 passed?
 
   // Per-shop ghost credential modal
   const [ghostModal,    setGhostModal]    = useState(null);  // shop object
@@ -78,36 +77,22 @@ export default function SAGhostPortal() {
     }
   };
 
-  /* ── Ghost PIN Management ── */
-  const verifyMasterForPin = async () => {
-    if (!masterPW) { toast.error('Master Password ඇතුළත් කරන්න'); return; }
-    setPinLoading(true);
-    try {
-      // Quick auth check — use verify-master-password endpoint
-      await superAdminAPI.verifyMasterPassword?.(masterPW);
-      setMasterPWValid(true);
-      toast.success('Master Password සත්‍යාපනය සාර්ථකයි ✅');
-    } catch (err) {
-      toast.error(err.response?.data?.message || 'Master Password වැරදියි');
-    } finally {
-      setPinLoading(false);
-    }
-  };
-
+  /* ── Ghost PIN Management (single-step: masterPassword + newGhostPin together) ── */
   const handleSetGhostPin = async () => {
+    if (!masterPW) { toast.error('Master Password ඇතුළත් කරන්න'); return; }
     if (!newGhostPin || !/^\d{4,8}$/.test(newGhostPin)) {
       toast.error('Ghost PIN ඉලක්කම් 4-8ක් ඇතුළත් කරන්න'); return;
     }
     setPinLoading(true);
     try {
+      // Backend verifies masterPassword AND sets newGhostPin in one request
       await superAdminAPI.setGhostPin?.({ masterPassword: masterPW, newGhostPin });
       toast.success('Ghost PIN සාර්ථකව සකස් කළා 🔐');
-      setMasterPWValid(false);
       setMasterPW('');
       setNewGhostPin('');
       loadPinStatus();
     } catch (err) {
-      toast.error(err.response?.data?.message || 'Ghost PIN සැකසීම අසාර්ථකයි');
+      toast.error(err.response?.data?.message || 'Master Password වැරදියි, හෝ Ghost PIN සැකසීම අසාර්ථකයි');
     } finally {
       setPinLoading(false);
     }
@@ -126,7 +111,7 @@ export default function SAGhostPortal() {
           <span className="badge badge-purple">Layer 2 Protected</span>
           <button
             className={`btn btn-sm ${pinTabOpen ? 'btn-primary' : 'btn-ghost'}`}
-            onClick={() => { setPinTabOpen(p => !p); setMasterPWValid(false); setMasterPW(''); setNewGhostPin(''); }}
+            onClick={() => { setPinTabOpen(p => !p); setMasterPW(''); setNewGhostPin(''); }}
           >
             🔐 Ghost PIN {pinStatus?.ghostPinSet ? '(Set)' : '(Not Set)'}
           </button>
@@ -156,59 +141,40 @@ export default function SAGhostPortal() {
             </div>
           )}
 
-          {/* Stage 1: Master Password verification */}
-          {!masterPWValid ? (
-            <div>
-              <p style={{ fontSize: '0.82rem', color: 'var(--clr-text-muted)', marginBottom: '0.75rem' }}>
-                Ghost PIN සැකසීමට පෙර Master Password සත්‍යාපනය අවශ්‍යයි
-              </p>
-              <div style={{ display: 'flex', gap: '0.5rem' }}>
-                <input
-                  type="password"
-                  value={masterPW}
-                  onChange={e => setMasterPW(e.target.value)}
-                  onKeyDown={e => e.key === 'Enter' && verifyMasterForPin()}
-                  placeholder="Master Password"
-                  style={styles.input}
-                />
-                <button
-                  className="btn btn-primary"
-                  onClick={verifyMasterForPin}
-                  disabled={pinLoading}
-                  style={{ whiteSpace: 'nowrap' }}
-                >
-                  {pinLoading ? '⏳' : '✅ Verify'}
-                </button>
-              </div>
+          {/* Single-step: Master Password + new Ghost PIN submitted together */}
+          <div>
+            <p style={{ fontSize: '0.82rem', color: 'var(--clr-text-muted)', marginBottom: '0.75rem' }}>
+              Master Password සහ නව Ghost PIN එක එකවර ඇතුළත් කර Save කරන්න
+            </p>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.6rem' }}>
+              <input
+                type="password"
+                value={masterPW}
+                onChange={e => setMasterPW(e.target.value)}
+                onKeyDown={e => e.key === 'Enter' && handleSetGhostPin()}
+                placeholder="Master Password"
+                style={styles.input}
+              />
+              <input
+                type="password"
+                value={newGhostPin}
+                onChange={e => setNewGhostPin(e.target.value.replace(/\D/g, '').slice(0, 8))}
+                onKeyDown={e => e.key === 'Enter' && handleSetGhostPin()}
+                placeholder="නව Ghost PIN — ඉලක්කම් 4-8ක් (eg: 7291)"
+                maxLength={8}
+                inputMode="numeric"
+                style={styles.input}
+              />
+              <button
+                className="btn btn-primary"
+                onClick={handleSetGhostPin}
+                disabled={pinLoading}
+                style={{ whiteSpace: 'nowrap' }}
+              >
+                {pinLoading ? '⏳ සකසමින්...' : '🔐 Verify & Set PIN'}
+              </button>
             </div>
-          ) : (
-            /* Stage 2: Set new Ghost PIN */
-            <div>
-              <p style={{ fontSize: '0.82rem', color: 'var(--clr-success)', marginBottom: '0.75rem' }}>
-                ✅ Master Password සත්‍යාපනය සාර්ථකයි. නව Ghost PIN ඇතුළත් කරන්න:
-              </p>
-              <div style={{ display: 'flex', gap: '0.5rem' }}>
-                <input
-                  type="password"
-                  value={newGhostPin}
-                  onChange={e => setNewGhostPin(e.target.value.replace(/\D/g, '').slice(0, 8))}
-                  onKeyDown={e => e.key === 'Enter' && handleSetGhostPin()}
-                  placeholder="ඉලක්කම් 4-8ක් (eg: 7291)"
-                  maxLength={8}
-                  inputMode="numeric"
-                  style={styles.input}
-                />
-                <button
-                  className="btn btn-primary"
-                  onClick={handleSetGhostPin}
-                  disabled={pinLoading}
-                  style={{ whiteSpace: 'nowrap' }}
-                >
-                  {pinLoading ? '⏳' : '🔐 Set PIN'}
-                </button>
-              </div>
-            </div>
-          )}
+          </div>
         </div>
       )}
 

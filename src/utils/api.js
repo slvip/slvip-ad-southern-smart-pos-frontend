@@ -53,6 +53,7 @@ api.interceptors.response.use(
       localStorage.removeItem('pos_token');
       localStorage.removeItem('pos_user');
       sessionStorage.removeItem('sa_ghost_active');
+      sessionStorage.clear(); // Ghost session එක මුළුමනින්ම නැති කිරීමට
       if (!window.location.hash.includes('/login')) {
         window.location.hash = '/login';
       }
@@ -162,7 +163,7 @@ export const superAdminAPI = {
   ghostLogin:        (shopId, data) => api.post(`/super-admin/ghost/${shopId}`, data || {}),
   getGhostPinStatus: ()             => api.get('/super-admin/ghost-pin/status'),
   setGhostPin:       (data)         => api.post('/super-admin/ghost-pin/set', data),
-  verifyMasterPassword: (pw)        => api.post('/api/auth/verify-master-password', { masterPassword: pw }),
+  verifyMasterPassword: (pw)        => api.post('/auth/verify-master-password', { masterPassword: pw }),
 
   /* ── Audit Logs (global) ── */
   getAuditLogs:    (params)    => api.get('/super-admin/audit', { params }),

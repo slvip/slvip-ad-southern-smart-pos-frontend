@@ -68,7 +68,7 @@ export default function SAGhostPortal() {
       const res = await superAdminAPI.ghostLogin(ghostModal._id, payload);
       const { ghostToken, targetUser } = res.data;
       enterGhost(ghostToken, targetUser);
-      toast.success(\`👻 "\${ghostModal.name}" ගේ Admin Panel වෙත ඇතුළු වෙමින්...\`);
+      toast.success(`👻 "${ghostModal.name}" ගේ Admin Panel වෙත ඇතුළු වෙමින්...`);
       setGhostModal(null);
       navigate('/dashboard');
     } catch (err) {

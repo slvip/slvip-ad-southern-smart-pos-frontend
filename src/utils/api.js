@@ -69,7 +69,7 @@ export const authAPI = {
   logout:         ()      => api.post('/auth/logout'),
   me:             ()      => api.get('/auth/me'),
   verifyPin:      (pin)   => api.post('/auth/verify-pin', { pin }),
-  setPín:         (data)  => api.post('/auth/set-pin', data),
+  setPin:         (data)  => api.post('/auth/set-pin', data),
   pinStatus:      ()      => api.get('/auth/pin-status'),
   changePassword: (data)  => api.put('/auth/change-password', data),  // FIX 5
 };

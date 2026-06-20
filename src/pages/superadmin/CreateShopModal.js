@@ -17,7 +17,8 @@ const TIERS = [
 
 const EMPTY = {
   shopName: '', businessCategory: 'Grocery', stockTier: 'standard',
-  adminUsername: '', adminPassword: '', adminDisplayName: '',
+  adminUsername: '', adminPassword: '', adminDisplayName: '', adminPin: '',
+  geminiApiKey: '',
   masterPassword: '',
 };
 
@@ -26,6 +27,7 @@ export default function CreateShopModal({ open, onClose, onCreated }) {
   const [loading, setLoading] = useState(false);
   const [step, setStep]     = useState(1); // 1 = shop details, 2 = master pwd confirm
   const [showPwd, setShowPwd] = useState(false);
+  const [showPin, setShowPin] = useState(false);
 
   if (!open) return null;
 
@@ -33,11 +35,14 @@ export default function CreateShopModal({ open, onClose, onCreated }) {
 
   const handleStep1 = (e) => {
     e.preventDefault();
-    if (!form.shopName || !form.adminUsername || !form.adminPassword || !form.adminDisplayName) {
+    if (!form.shopName || !form.adminUsername || !form.adminPassword || !form.adminDisplayName || !form.adminPin) {
       toast.error('සියලු ක්ෂේත්‍ර පුරවන්න'); return;
     }
     if (form.adminPassword.length < 8) {
       toast.error('Admin Password අවම අක්ෂර 8ක් විය යුතුය'); return;
+    }
+    if (!/^\d{4}$/.test(form.adminPin)) {
+      toast.error('Admin PIN ඉලක්කම් 4ක් විය යුතුය'); return;
     }
     setStep(2);
   };
@@ -56,6 +61,8 @@ export default function CreateShopModal({ open, onClose, onCreated }) {
         adminUsername:     form.adminUsername,
         adminPassword:     form.adminPassword,
         adminDisplayName:  form.adminDisplayName,
+        adminPin:          form.adminPin,
+        geminiApiKey:      form.geminiApiKey,
         masterPassword:    form.masterPassword,
       });
       toast.success(`🏪 "${form.shopName}" සාර්ථකව සාදන ලදී!`);
@@ -146,6 +153,34 @@ export default function CreateShopModal({ open, onClose, onCreated }) {
                   <button type="button" onClick={() => setShowPwd(v => !v)} style={styles.eyeBtn}>{showPwd ? '🙈' : '👁'}</button>
                 </div>
               </div>
+              <div className="form-group" style={{ position: 'relative', maxWidth: 200 }}>
+                <label>Admin Action PIN (4 digits) *</label>
+                <input
+                  type={showPin ? 'text' : 'password'}
+                  inputMode="numeric"
+                  value={form.adminPin}
+                  onChange={e => set('adminPin', e.target.value.replace(/\D/g, '').slice(0, 4))}
+                  placeholder="••••"
+                  style={{ paddingRight: '2.5rem', letterSpacing: '0.2em' }}
+                />
+                <button type="button" onClick={() => setShowPin(v => !v)} style={styles.eyeBtn}>{showPin ? '🙈' : '👁'}</button>
+                <div style={{ fontSize: '0.72rem', color: 'var(--clr-text-muted)', marginTop: '0.3rem' }}>
+                  Layer 2 Security PIN — Admin ට පසුව Settings වලින් මෙය වෙනස් කරගත හැක.
+                </div>
+              </div>
+            </div>
+
+            <div style={{ borderTop: '1px solid var(--clr-border)', margin: '1rem 0', paddingTop: '1rem' }}>
+              <div style={{ fontSize: '0.78rem', color: 'var(--clr-text-muted)', marginBottom: '0.75rem' }}>
+                🤖 Gemini API Key <span style={{ opacity: 0.7 }}>(Optional)</span>
+              </div>
+              <div className="form-group">
+                <input
+                  value={form.geminiApiKey}
+                  onChange={e => set('geminiApiKey', e.target.value)}
+                  placeholder="AIza... (හිස්ව තැබුවොත් පසුව Settings වලින් දාගත හැක)"
+                />
+              </div>
             </div>
             <div style={{ display: 'flex', gap: '0.75rem' }}>
               <button type="button" className="btn btn-ghost btn-full" onClick={handleClose}>අවලංගු</button>
@@ -180,6 +215,8 @@ export default function CreateShopModal({ open, onClose, onCreated }) {
               <div style={styles.summaryRow}><span>Category:</span> <strong>{form.businessCategory}</strong></div>
               <div style={styles.summaryRow}><span>Tier:</span> <strong>{TIERS.find(t => t.value === form.stockTier)?.label}</strong></div>
               <div style={styles.summaryRow}><span>Admin:</span> <strong>{form.adminUsername}</strong></div>
+              <div style={styles.summaryRow}><span>Admin PIN:</span> <strong>{'•'.repeat(form.adminPin.length || 4)}</strong></div>
+              <div style={styles.summaryRow}><span>Gemini Key:</span> <strong>{form.geminiApiKey ? 'සැකසී ඇත' : 'හිස් (පසුව දාගත හැක)'}</strong></div>
             </div>
 
             <div style={{ display: 'flex', gap: '0.75rem' }}>

@@ -64,7 +64,7 @@ export default function AdminSettings() {
     }
     setPinLoading(true);
     try {
-      await authAPI.setPín({
+      await authAPI.setPin({
         pin:             pinForm.newPin,
         currentPin:      pinForm.currentPin || undefined,
         currentPassword: pinForm.currentPassword || undefined,

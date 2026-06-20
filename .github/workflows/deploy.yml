@@ -17,16 +17,15 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: '20'
-          cache: 'npm'
+          # cache: 'npm' ඉවත් කළා — npm install සමඟ lock file sync issue fix
 
       - name: Install dependencies
-        run: npm ci
+        run: npm install  # npm ci → npm install (lock file sync issue fix)
 
       - name: Build
         env:
-          # GitHub Secret වලින් Glitch URL inject කිරීම
           REACT_APP_API_URL: ${{ secrets.REACT_APP_API_URL }}
-          CI: false # 💡 Warnings නිසා Build එක Fail වෙන එක නවත්වන්න මේ පේළිය එකතු කළා
+          CI: false  # Warnings නිසා build fail නොවෙයි
         run: npm run build
 
       - name: Deploy to GitHub Pages
@@ -34,3 +33,4 @@ jobs:
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
           publish_dir: ./build
+          commit_message: "Deploy: ${{ github.sha }}"

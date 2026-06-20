@@ -12,6 +12,11 @@
 // FIX 5: authAPI.changePassword → /auth/change-password (route now exists)
 // FIX 6: timeout 10000ms (Choreo always-on — cold-start නෑ)
 // FIX 7: BASE_URL — REACT_APP_API_URL env var (GitHub Actions secret)
+// FIX 8: timeout 10000ms → 30000ms — log data confirmed Choreo Development
+//        environment can take 9-10s+ to respond on first contact after idle
+//        (gateway cold path / pod wake), which was exceeding the old 10s
+//        axios timeout and disconnecting client-side before any response
+//        arrived. Backend itself responds in 10-20ms once reached.
 // ──────────────────────────────────────────────────────────────────────────
 
 import axios from 'axios';
@@ -26,7 +31,7 @@ const BASE_URL = process.env.REACT_APP_API_URL || 'http://localhost:8080/api';
 
 const api = axios.create({
   baseURL: BASE_URL,
-  timeout: 10000, // Choreo always-on — 10s ප්‍රමාණවත්
+  timeout: 30000, // FIX 8: 10s was too short for Choreo Dev env response times
   headers: { 'Content-Type': 'application/json' },
 });
 

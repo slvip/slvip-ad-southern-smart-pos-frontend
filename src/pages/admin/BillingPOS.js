@@ -7,6 +7,10 @@
 // FIX 2: billDone box — "📱 Send via WhatsApp" optional button added (SPEC §5C item 62)
 //         Visible only when whatsappEnabled = true in shop settings
 //         Calls billingAPI.sendWhatsAppReceipt(billId, phone) — optional, cashier-triggered
+// FIX 3: Fractional (kg/l) item support — Quick Weight Pop-up (100g/250g/500g/1kg + manual)
+// FIX 4: Void Bill now gated behind Action PIN (backend requirePinVerified) —
+//         PinModal shown first; VoidBillModal only renders once pos_pin_token cached
+// FIX 5: Checkout shortcut changed F10 → Space (frees F10 — browser-reserved on some OS)
 // ─────────────────────────────────────────────────────────────────────────────
 //
 // ✅ Features implemented:
@@ -16,11 +20,12 @@
 //   • Hold Bill (F4) + Retrieve Held Bills (F5)
 //   • Past Bills Search (Bill # or Date) + Reprint
 //   • Checkout Modal: Cash / Card / Transfer + Change Calculator
+//   • Fractional (kg/l) items — Weight Pop-up entry
 //   • Cosmetic Savings Display (receipt only — no accounting impact)
 //   • Thermal Receipt Print (window.print() with 58mm/80mm layout)
 //   • Voice Bill Cutting (Web Speech API — Sinhala/English)
-//   • Offline detection + IndexedDB fallback notification
-//   • Void Bill with reason + Master Password (Cashier level)
+//   • Offline detection + IndexedDB fallback notification (shared offlineSync.js)
+//   • Void Bill — Action PIN gate + reason + Master Password (Cashier level)
 //   • GitHub Pages HashRouter compatible (no browser navigation used)
 
 import React, {
@@ -31,6 +36,7 @@ import { billingAPI } from '../../utils/api';
 // POST /billing/bills/:id/whatsapp  { customerPhone }  — backend Baileys send
 import { useAuth } from '../../context/AuthContext';
 import toast from 'react-hot-toast';
+import PinModal from '../../components/shared/PinModal';
 import {
   saveOfflineBill, saveOfflineHold, getOfflineHolds, deleteOfflineHold,
   refreshStockSnapshot, searchOfflineItems, getOfflineItemByBarcode,
@@ -83,11 +89,12 @@ export default function BillingPOS() {
   const [isOffline,      setIsOffline]      = useState(!navigator.onLine);
   const [voidOpen,       setVoidOpen]       = useState(false);
   const [voidBillTarget, setVoidBillTarget] = useState(null);
+  const [pinVerified,    setPinVerified]    = useState(!!sessionStorage.getItem('pos_pin_token'));
   const [selectedPastBill, setSelectedPastBill] = useState(null);
   // FIX 1 & 2: WhatsApp receipt delivery state
   const [sendingWA,      setSendingWA]      = useState(false);
 
-  // FRACTIONAL ITEM: Quick Weight Pop-up state
+  // FIX 3 — FRACTIONAL ITEM: Quick Weight Pop-up state
   const [weightModal,    setWeightModal]    = useState(null);  // { item } or null
   const [weightInput,    setWeightInput]    = useState('');    // gram input string
 
@@ -115,17 +122,6 @@ export default function BillingPOS() {
     };
   }, [shopId]);
 
-  /* ── MODULE 4 GAP FIX: prime the offline item cache as soon as the POS
-     screen mounts (while online), so the very first offline sale of the
-     day already has a usable local stock mirror — not just after the
-     first 'online' event fires later. ── */
-  useEffect(() => {
-    if (shopId && !isOffline) {
-      refreshStockSnapshot(shopId, billingAPI).catch(() => {});
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [shopId]);
-
   /* ── Load cosmetic rate ── */
   useEffect(() => {
     if (!isOffline) {
@@ -146,7 +142,7 @@ export default function BillingPOS() {
       // If search input is focused, let the default flow handle it
       if (document.activeElement === searchRef.current) return;
       // Modals take precedence — ignore scanner when modal open
-      if (checkoutOpen || showHeld || pastBillsOpen || voidOpen) return;
+      if (checkoutOpen || showHeld || pastBillsOpen || voidOpen || camScanOpen || weightModal) return;
 
       if (e.key === 'Enter' && barcodeBuffer.current.length > 3) {
         const code = barcodeBuffer.current.trim();
@@ -163,7 +159,7 @@ export default function BillingPOS() {
     };
     window.addEventListener('keydown', handler);
     return () => window.removeEventListener('keydown', handler);
-  }, [checkoutOpen, showHeld, pastBillsOpen, voidOpen]);
+  }, [checkoutOpen, showHeld, pastBillsOpen, voidOpen, camScanOpen, weightModal]);
 
   /* ─────────────────────────────────────────────────────────
      KEYBOARD SHORTCUTS
@@ -177,15 +173,15 @@ export default function BillingPOS() {
       if (e.key === 'F2')  { e.preventDefault(); searchRef.current?.focus(); }
       if (e.key === 'F4')  { e.preventDefault(); if (!inInput) handleHold(); }
       if (e.key === 'F5')  { e.preventDefault(); if (!inInput) openHeldBills(); }
-      // MODULE 3 SPEC FIX: Checkout is bound to Spacebar (not F10).
-      // Guarded by !inInput so a space typed into the search box or any
-      // other input/textarea still types a normal space character.
-      if ((e.key === ' ' || e.code === 'Space') && !inInput) {
-        e.preventDefault();
-        if (cart.length > 0) setCheckoutOpen(true);
+      if (e.key === ' ' || e.code === 'Space') {
+        if (!inInput && cart.length > 0 && !checkoutOpen && !showHeld && !pastBillsOpen && !voidOpen && !weightModal) {
+          e.preventDefault();
+          setCheckoutOpen(true);
+        }
       }
       if (e.key === 'Escape') {
         e.preventDefault();
+        if (weightModal)   { setWeightModal(null); setWeightInput(''); return; }
         if (checkoutOpen)  { setCheckoutOpen(false); return; }
         if (showHeld)      { setShowHeld(false); return; }
         if (pastBillsOpen) { setPastBillsOpen(false); return; }
@@ -199,10 +195,10 @@ export default function BillingPOS() {
     };
     window.addEventListener('keydown', handler);
     return () => window.removeEventListener('keydown', handler);
-  }, [cart, checkoutOpen, showHeld, pastBillsOpen, camScanOpen, voidOpen]);
+  }, [cart, checkoutOpen, showHeld, pastBillsOpen, camScanOpen, voidOpen, weightModal]);
 
   /* ─────────────────────────────────────────────────────────
-     ITEM SEARCH (debounced)
+     ITEM SEARCH (debounced) — MODULE 4 GAP FIX: offline fallback
   ──────────────────────────────────────────────────────────*/
   const searchTimer = useRef(null);
   const handleSearch = useCallback((q) => {
@@ -210,33 +206,26 @@ export default function BillingPOS() {
     clearTimeout(searchTimer.current);
     if (!q || q.length < 1) { setSearchResults([]); return; }
     searchTimer.current = setTimeout(async () => {
-      // MODULE 4 GAP FIX: true offline search — read the local stockItems
-      // cache instead of hitting the network (which would just fail/hang).
-      if (isOffline) {
-        try {
-          const items = await searchOfflineItems(shopId, q);
-          setSearchResults(items);
-        } catch { setSearchResults([]); }
-        return;
-      }
       try {
-        const res = await billingAPI.searchItems(q);
-        setSearchResults(res.data.items || []);
+        if (isOffline) {
+          const items = await searchOfflineItems(shopId, q);
+          setSearchResults(items || []);
+        } else {
+          const res = await billingAPI.searchItems(q);
+          setSearchResults(res.data.items || []);
+        }
       } catch { setSearchResults([]); }
     }, 180); // 180ms debounce
   }, [isOffline, shopId]);
 
   const lookupBarcode = async (code) => {
-    // MODULE 4 GAP FIX: offline barcode lookup via local cache.
-    if (isOffline) {
-      try {
-        const item = await getOfflineItemByBarcode(shopId, code);
-        if (item) { addToCart(item); toast.success(`✅ ${item.name} — Added (Offline)`); }
-        else toast.error(`Barcode ${code} — Item හමු නොවීය (Offline Cache)`);
-      } catch { toast.error('Barcode lookup error (Offline)'); }
-      return;
-    }
     try {
+      if (isOffline) {
+        const item = await getOfflineItemByBarcode(shopId, code);
+        if (item) { addToCart(item); toast.success(`✅ ${item.name} — Added`); }
+        else toast.error(`Barcode ${code} — Item හමු නොවීය (Offline)`);
+        return;
+      }
       const res = await billingAPI.getItemByBarcode(code);
       const item = res.data.item;
       if (item) { addToCart(item); toast.success(`✅ ${item.name} — Added`); }
@@ -247,7 +236,7 @@ export default function BillingPOS() {
   /* ─────────────────────────────────────────────────────────
      CART OPERATIONS
   ──────────────────────────────────────────────────────────*/
-  // FRACTIONAL: kg/l items → show weight popup; normal items → add qty 1
+  // FIX 3 — FRACTIONAL: kg/l items → show weight popup; normal items → add qty 1
   const addToCart = (item) => {
     if (item.quantity !== undefined && item.quantity <= 0) {
       toast.error(`${item.name} — Stock නොමැත`); return;
@@ -281,7 +270,7 @@ export default function BillingPOS() {
     setTimeout(() => searchRef.current?.focus(), 50);
   };
 
-  // FRACTIONAL: quick-button OR manual gram input → confirm weight → add to cart
+  // FIX 3 — FRACTIONAL: quick-button OR manual gram input → confirm weight → add to cart
   const confirmWeight = (kgValue) => {
     const item = weightModal;
     if (!item) return;
@@ -551,7 +540,9 @@ export default function BillingPOS() {
     }
   };
 
-  /* ── Print Receipt (unchanged) ── */
+  /* ─────────────────────────────────────────────────────────
+     PRINT RECEIPT
+  ──────────────────────────────────────────────────────────*/
   const printReceipt = (bill) => {
     const html = generateReceiptHTML(bill, user?.shop, cosmeticSaving, cosmeticRate);
     const w    = window.open('', '_blank', 'width=420,height=650,toolbar=0,scrollbars=0');
@@ -806,7 +797,7 @@ export default function BillingPOS() {
             >🗑 Clear (Esc)</button>
           </div>
 
-                    {/* Last bill print box — FIX 2: WhatsApp send button added */}
+          {/* Last bill print box — FIX 2: WhatsApp send button added */}
           {billDone && (
             <div style={styles.billDoneBox}>
               <div style={{ fontWeight: 700, color: 'var(--clr-success)', fontSize: '0.88rem', marginBottom: '0.5rem' }}>
@@ -849,3 +840,599 @@ export default function BillingPOS() {
               )}
             </div>
           )}
+        </div>
+      </div>
+
+      {/* ═══════════════════════════════════════════════════
+          MODALS
+      ═══════════════════════════════════════════════════ */}
+
+      {/* Checkout Modal */}
+      {checkoutOpen && (
+        <CheckoutModal
+          total={total}
+          onConfirm={handleCheckout}
+          onClose={() => setCheckoutOpen(false)}
+          loading={loading}
+        />
+      )}
+
+      {/* Held Bills Modal */}
+      {showHeld && (
+        <div className="modal-overlay" onClick={() => setShowHeld(false)}>
+          <div className="modal" onClick={e => e.stopPropagation()} style={{ maxWidth: 480 }}>
+            <div className="modal-title">📂 Hold කළ Bills (F5)</div>
+            {heldBills.length === 0 ? (
+              <div className="empty-state" style={{ padding: '2rem' }}>Hold කළ Bills නොමැත</div>
+            ) : heldBills.map((h, i) => (
+              <div key={h._id || i} style={styles.heldRow}>
+                <div>
+                  <div style={{ fontWeight: 600 }}>
+                    {h.items?.length} items — රු.{h.subtotal?.toLocaleString()}
+                    {h.source === 'offline' && <span style={{ color: 'var(--clr-accent)', marginLeft: 8, fontSize: '0.72rem' }}>📴 Offline</span>}
+                  </div>
+                  <div style={{ fontSize: '0.73rem', color: 'var(--clr-text-muted)' }}>
+                    {new Date(h.heldAt || h.createdAt || h.savedAt).toLocaleTimeString('si-LK')}
+                  </div>
+                </div>
+                <button className="btn btn-primary btn-sm" onClick={() => retrieveHeld(h)}>
+                  ↩ Retrieve
+                </button>
+              </div>
+            ))}
+            <button className="btn btn-ghost btn-full" style={{ marginTop: '1rem' }} onClick={() => setShowHeld(false)}>
+              Close (Esc)
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Past Bills Modal */}
+      {pastBillsOpen && (
+        <div className="modal-overlay" onClick={() => setPastBillsOpen(false)}>
+          <div className="modal" onClick={e => e.stopPropagation()} style={{ maxWidth: 680, width: '95vw' }}>
+            <div className="modal-title">📋 Past Bills</div>
+            <div style={{ display: 'flex', gap: '0.5rem', marginBottom: '1rem' }}>
+              <input
+                value={pastSearch}
+                onChange={e => setPastSearch(e.target.value)}
+                onKeyDown={e => e.key === 'Enter' && loadPastBills()}
+                placeholder="Bill # හෝ Cashier නම සොයන්න..."
+                style={{ flex: 1 }}
+                autoFocus
+              />
+              <button className="btn btn-primary btn-sm" onClick={loadPastBills}>
+                🔍
+              </button>
+            </div>
+
+            {pastLoading ? (
+              <div className="empty-state">⏳ Loading...</div>
+            ) : pastBills.length === 0 ? (
+              <div className="empty-state">Bills හමු නොවීය</div>
+            ) : (
+              <div style={{ maxHeight: 400, overflowY: 'auto' }}>
+                {pastBills.map(b => (
+                  <div
+                    key={b._id}
+                    style={{
+                      ...styles.pastBillRow,
+                      background: selectedPastBill?._id === b._id ? 'rgba(99,102,241,0.06)' : undefined,
+                      cursor: 'pointer',
+                    }}
+                    onClick={() => setSelectedPastBill(selectedPastBill?._id === b._id ? null : b)}
+                  >
+                    <div>
+                      <div style={{ fontWeight: 700, fontFamily: 'var(--font-mono)', color: 'var(--clr-accent)', fontSize: '0.88rem' }}>
+                        #{b.billNumber}
+                        {b.isVoided && <span style={{ color: 'var(--clr-danger)', marginLeft: 8, fontSize: '0.72rem' }}>VOID</span>}
+                      </div>
+                      <div style={{ fontSize: '0.73rem', color: 'var(--clr-text-muted)' }}>
+                        {new Date(b.createdAt).toLocaleString('si-LK')} — {b.cashierName}
+                      </div>
+                    </div>
+                    <div style={{ textAlign: 'right' }}>
+                      <div style={{ fontWeight: 700, color: 'var(--clr-success)' }}>
+                        රු.{b.total?.toLocaleString()}
+                      </div>
+                      <div style={{ fontSize: '0.72rem', color: 'var(--clr-text-muted)' }}>{b.paymentMethod}</div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {/* Expanded bill actions */}
+            {selectedPastBill && (
+              <div style={{ marginTop: '1rem', padding: '0.75rem', background: 'var(--clr-bg)', border: '1px solid var(--clr-border)', borderRadius: 'var(--radius)' }}>
+                <div style={{ fontWeight: 600, fontSize: '0.85rem', marginBottom: '0.5rem' }}>
+                  Bill #{selectedPastBill.billNumber} — Actions
+                </div>
+                <div style={{ display: 'flex', gap: '0.5rem' }}>
+                  <button className="btn btn-primary btn-sm" onClick={() => printReceipt(selectedPastBill)}>
+                    🖨 Print
+                  </button>
+                  {!selectedPastBill.isVoided && (
+                    <button
+                      className="btn btn-sm"
+                      style={{ color: 'var(--clr-danger)', border: '1px solid var(--clr-danger)', background: 'none' }}
+                      onClick={() => { setVoidBillTarget(selectedPastBill); setVoidOpen(true); }}
+                    >
+                      🗑 Void Bill
+                    </button>
+                  )}
+                </div>
+              </div>
+            )}
+
+            <button className="btn btn-ghost btn-full" style={{ marginTop: '1rem' }} onClick={() => setPastBillsOpen(false)}>
+              Close (Esc)
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* FIX 3: Weight Popup — fractional (kg/l) item entry */}
+      {weightModal && (
+        <div className="modal-overlay" onClick={() => { setWeightModal(null); setWeightInput(''); }}>
+          <div className="modal" onClick={e => e.stopPropagation()} style={{ maxWidth: 360 }}>
+            <div className="modal-title">⚖️ {weightModal.name}</div>
+            <p style={{ color: 'var(--clr-text-muted)', fontSize: '0.82rem', marginBottom: '1rem' }}>
+              රු.{Number(weightModal.sellingPrice).toLocaleString()}/kg &nbsp;|&nbsp;
+              Stock: {weightModal.quantity ?? '?'} kg
+            </p>
+
+            <div className="form-group">
+              <label>බර ඇතුළත් කරන්න (grams)</label>
+              <input
+                ref={weightInputRef}
+                type="number"
+                inputMode="decimal"
+                value={weightInput}
+                onChange={e => handleWeightManualInput(e.target.value)}
+                onKeyDown={e => { if (e.key === 'Enter') handleWeightConfirmManual(); }}
+                placeholder="උ.ද. 250 (= 250g)"
+                autoFocus
+              />
+            </div>
+
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '0.5rem', marginBottom: '1.1rem' }}>
+              {[100, 250, 500, 1000].map(g => (
+                <button
+                  key={g}
+                  className="btn btn-ghost btn-sm"
+                  onClick={() => confirmWeight(g / 1000)}
+                >{g >= 1000 ? '1kg' : `${g}g`}</button>
+              ))}
+            </div>
+
+            <div style={{ display: 'flex', gap: '0.75rem' }}>
+              <button
+                className="btn btn-ghost btn-full"
+                onClick={() => { setWeightModal(null); setWeightInput(''); }}
+              >අවලංගු කරන්න</button>
+              <button
+                className="btn btn-primary btn-full"
+                onClick={handleWeightConfirmManual}
+              >එකතු කරන්න</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Void Bill Modal — FIX 4: Action PIN gate → Reason + Master Password */}
+      {voidOpen && voidBillTarget && (
+        pinVerified ? (
+          <VoidBillModal
+            bill={voidBillTarget}
+            onConfirm={handleVoid}
+            onClose={() => { setVoidOpen(false); setVoidBillTarget(null); }}
+          />
+        ) : (
+          <PinModal
+            open={true}
+            label="Void Bill"
+            onSuccess={() => setPinVerified(true)}
+            onClose={() => { setVoidOpen(false); setVoidBillTarget(null); }}
+          />
+        )
+      )}
+
+      {/* Camera Barcode Scanner Modal */}
+      {camScanOpen && (
+        <div className="modal-overlay" onClick={() => setCamScanOpen(false)}>
+          <div className="modal" onClick={e => e.stopPropagation()} style={{ maxWidth: 420 }}>
+            <div className="modal-title">📷 Camera Barcode Scanner</div>
+            <Suspense fallback={<div className="empty-state">⏳ Scanner Loading...</div>}>
+              <CamBarcodeScanner
+                onDetected={(code) => {
+                  setCamScanOpen(false);
+                  lookupBarcode(code);
+                }}
+                onClose={() => setCamScanOpen(false)}
+              />
+            </Suspense>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* ════════════════════════════════════════════════════════════
+   SUB-COMPONENTS
+════════════════════════════════════════════════════════════ */
+
+function SummaryRow({ label, value, color, small }) {
+  return (
+    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.45rem', fontSize: small ? '0.82rem' : '0.9rem', color: color || 'var(--clr-text)' }}>
+      <span>{label}</span>
+      <span style={{ fontWeight: 600 }}>{value}</span>
+    </div>
+  );
+}
+
+/* ── Checkout Modal — FIX 1: Customer WhatsApp Phone field added ── */
+function CheckoutModal({ total, onConfirm, onClose, loading }) {
+  const [method,       setMethod]       = useState('cash');
+  const [paid,         setPaid]         = useState('');
+  const [customerName, setCustomerName] = useState('');
+  const [customerPhone, setCustomerPhone] = useState('');
+
+  const change   = Math.max(0, parseFloat(paid || 0) - total);
+  const shortfall = parseFloat(paid || 0) < total;
+
+  const confirm = () => {
+    const amt = method === 'cash' ? paid : String(total);
+    onConfirm(method, amt, customerName, customerPhone);
+  };
+
+  return (
+    <div className="modal-overlay" onClick={onClose}>
+      <div className="modal" onClick={e => e.stopPropagation()} style={{ maxWidth: 440 }}>
+        <div className="modal-title">💳 Checkout</div>
+
+        {/* Payment method toggle */}
+        <div style={{ display: 'flex', gap: '0.5rem', marginBottom: '1.25rem' }}>
+          {[['cash','💵 Cash'],['card','💳 Card'],['transfer','📱 Transfer']].map(([m, label]) => (
+            <button
+              key={m}
+              className={`btn btn-full ${method === m ? 'btn-primary' : 'btn-ghost'}`}
+              style={{ flex: 1, fontSize: '0.83rem' }}
+              onClick={() => setMethod(m)}
+            >{label}</button>
+          ))}
+        </div>
+
+        {/* Total display */}
+        <div style={{ background: 'var(--clr-bg)', border: '1px solid var(--clr-border)', borderRadius: 'var(--radius)', padding: '1rem 1.25rem', marginBottom: '1rem' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', fontWeight: 800, fontSize: '1.2rem' }}>
+            <span>Total</span>
+            <span style={{ color: 'var(--clr-primary)' }}>රු.{total.toLocaleString()}</span>
+          </div>
+        </div>
+
+        {/* Cash amount */}
+        {method === 'cash' && (
+          <>
+            <div className="form-group">
+              <label>ලැබුණු Cash (රු.)</label>
+              <input
+                type="number"
+                value={paid}
+                onChange={e => setPaid(e.target.value)}
+                placeholder={`${total}`}
+                autoFocus
+                min={0}
+              />
+            </div>
+            {paid && !shortfall && (
+              <div style={{
+                background: 'rgba(16,185,129,0.08)',
+                border: '1px solid rgba(16,185,129,0.3)',
+                borderRadius: 'var(--radius)',
+                padding: '0.85rem 1.25rem',
+                marginBottom: '1rem',
+                display: 'flex',
+                justifyContent: 'space-between',
+                alignItems: 'center',
+              }}>
+                <div>
+                  <div style={{ fontSize: '0.75rem', color: 'var(--clr-text-muted)' }}>Change (ඉතිරිය)</div>
+                  <div style={{ fontSize: '1.5rem', fontWeight: 900, color: 'var(--clr-success)', fontFamily: 'var(--font-mono)' }}>
+                    රු.{change.toLocaleString()}
+                  </div>
+                </div>
+                <div style={{ fontSize: '2rem' }}>💵</div>
+              </div>
+            )}
+            {paid && shortfall && (
+              <div style={{ color: 'var(--clr-danger)', fontSize: '0.82rem', marginBottom: '1rem' }}>
+                ⚠️ රු.{(total - parseFloat(paid)).toLocaleString()} අඩු
+              </div>
+            )}
+          </>
+        )}
+
+        {/* Optional customer name + WhatsApp phone (FIX 1 — SPEC §5B item 60) */}
+        <div className="form-row">
+          <div className="form-group">
+            <label>Customer නම (Optional)</label>
+            <input
+              value={customerName}
+              onChange={e => setCustomerName(e.target.value)}
+              placeholder="Perera..."
+            />
+          </div>
+          <div className="form-group">
+            <label>WhatsApp Number (Optional)</label>
+            <input
+              value={customerPhone}
+              onChange={e => setCustomerPhone(e.target.value)}
+              placeholder="07XXXXXXXX"
+              inputMode="tel"
+            />
+          </div>
+        </div>
+
+        <div style={{ display: 'flex', gap: '0.75rem', marginTop: '0.5rem' }}>
+          <button className="btn btn-ghost btn-full" onClick={onClose} disabled={loading}>Cancel</button>
+          <button
+            className="btn btn-primary btn-full"
+            disabled={loading || (method === 'cash' && (!paid || shortfall))}
+            onClick={confirm}
+          >
+            {loading ? '⏳ Processing...' : '✅ Bill Complete'}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ── Void Bill Modal ── */
+function VoidBillModal({ bill, onConfirm, onClose }) {
+  const [reason,   setReason]   = useState('');
+  const [masterPw, setMasterPw] = useState('');
+  const [loading,  setLoading]  = useState(false);
+
+  const submit = async () => {
+    if (!reason.trim())   { toast.error('Void Reason ඇතුළත් කරන්න'); return; }
+    if (!masterPw.trim()) { toast.error('Master Password ඇතුළත් කරන්න'); return; }
+    setLoading(true);
+    await onConfirm(bill._id, reason, masterPw);
+    setLoading(false);
+  };
+
+  return (
+    <div className="modal-overlay" onClick={onClose}>
+      <div className="modal" onClick={e => e.stopPropagation()} style={{ maxWidth: 420 }}>
+        <div className="modal-title" style={{ color: 'var(--clr-danger)' }}>🗑 Void Bill #{bill.billNumber}</div>
+        <div style={{ color: 'var(--clr-text-muted)', fontSize: '0.82rem', marginBottom: '1rem' }}>
+          ⚠️ Void කළ Bill නැවත Restore කළ නොහැක. WhatsApp Void Alert ස්වයංක්‍රීයව යවයි.
+        </div>
+        <div className="form-group">
+          <label>Void Reason *</label>
+          <input
+            value={reason}
+            onChange={e => setReason(e.target.value)}
+            placeholder="Customer cancel, Data entry error..."
+            autoFocus
+          />
+        </div>
+        <div className="form-group">
+          <label>Master Password *</label>
+          <input
+            type="password"
+            value={masterPw}
+            onChange={e => setMasterPw(e.target.value)}
+            placeholder="Master Action Password"
+          />
+        </div>
+        <div style={{ display: 'flex', gap: '0.75rem' }}>
+          <button className="btn btn-ghost btn-full" onClick={onClose} disabled={loading}>Cancel</button>
+          <button
+            className="btn btn-full"
+            style={{ background: 'var(--clr-danger)', color: '#fff', border: 'none', borderRadius: 'var(--radius)', padding: '0.6rem 1rem', fontWeight: 700, cursor: loading ? 'not-allowed' : 'pointer' }}
+            onClick={submit}
+            disabled={loading}
+          >
+            {loading ? '⏳...' : '🗑 Void Bill'}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ════════════════════════════════════════════════════════════
+   RECEIPT HTML GENERATOR  (58mm / 80mm Thermal)
+════════════════════════════════════════════════════════════ */
+function generateReceiptHTML(bill, shop, cosmeticSaving, cosmeticRate) {
+  const shopName    = shop?.settings?.shopDisplayName || shop?.name || 'AD SOUTHERN';
+  const footerText  = shop?.settings?.receiptFooter   || 'ස්තූතියි! AD SOUTHERN SMART POS';
+  const payLabel    = { cash: 'Cash', card: 'Card', transfer: 'Transfer' }[bill.paymentMethod] || bill.paymentMethod || '';
+
+  const rows = (bill.items || []).map(i => `
+    <tr>
+      <td style="padding:3px 2px;vertical-align:top">${i.name}</td>
+      <td style="text-align:center;padding:3px 2px;white-space:nowrap">${i.qty}${i.unit ? ` ${i.unit}` : ''}</td>
+      <td style="text-align:right;padding:3px 2px;white-space:nowrap">Rs.${(i.price * i.qty).toLocaleString()}</td>
+    </tr>`).join('');
+
+  const cosmeticLine = (cosmeticSaving > 0 || (bill.cosmeticSaving > 0))
+    ? `<div style="text-align:center;color:#059669;font-size:11px;padding:4px 0;border-top:1px dashed #ccc;margin-top:4px">
+         🎁 ඔබට ලැබුණු ලාභය: Rs.${(bill.cosmeticSaving || cosmeticSaving).toLocaleString()}
+       </div>`
+    : '';
+
+  return `<!DOCTYPE html>
+<html><head><meta charset="UTF-8"/>
+<style>
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{font-family:'Noto Sans Sinhala','Noto Sans','Arial Narrow','Arial',sans-serif;font-size:12px;width:280px;margin:0 auto;padding:4px 0}
+  .center{text-align:center}
+  .bold{font-weight:700}
+  .hr{border:none;border-top:1px dashed #555;margin:5px 0}
+  table{width:100%;border-collapse:collapse}
+  th{font-size:10px;text-transform:uppercase;letter-spacing:.04em;padding:2px 2px 4px;border-bottom:1px solid #aaa}
+  td{font-size:11.5px;vertical-align:top}
+  .total-row td{font-weight:700;font-size:13px;padding-top:5px;border-top:2px solid #333}
+  .sub-row td{font-size:11px;color:#555;padding-top:2px}
+  .footer{text-align:center;font-size:9.5px;color:#666;margin-top:6px;line-height:1.5}
+  @media print{
+    @page{margin:2mm;size:80mm auto}
+    body{width:100%}
+  }
+</style>
+</head><body>
+<div class="center bold" style="font-size:15px;letter-spacing:.02em">${shopName}</div>
+<div class="center" style="font-size:9.5px;color:#666">AD SOUTHERN SMART POS</div>
+<hr class="hr"/>
+<div style="font-size:11px;line-height:1.7">
+  <div>Bill&nbsp;#: <strong>${bill.billNumber}</strong></div>
+  <div>Date: ${new Date(bill.createdAt).toLocaleString('si-LK')}</div>
+  <div>Cashier: ${bill.cashierName || '—'}</div>
+  ${bill.customerName ? `<div>Customer: ${bill.customerName}</div>` : ''}
+</div>
+<hr class="hr"/>
+<table>
+  <thead>
+    <tr>
+      <th style="text-align:left">Item</th>
+      <th style="text-align:center">Qty</th>
+      <th style="text-align:right">Total</th>
+    </tr>
+  </thead>
+  <tbody>${rows}</tbody>
+</table>
+<hr class="hr"/>
+<table>
+  <tr class="total-row">
+    <td>TOTAL</td>
+    <td style="text-align:right">Rs.${bill.total?.toLocaleString()}</td>
+  </tr>
+  ${bill.paymentMethod ? `<tr class="sub-row"><td>${payLabel}</td><td style="text-align:right">${bill.amountPaid ? `Rs.${bill.amountPaid.toLocaleString()}` : ''}</td></tr>` : ''}
+  ${bill.change > 0 ? `<tr class="sub-row"><td>Change</td><td style="text-align:right">Rs.${bill.change.toLocaleString()}</td></tr>` : ''}
+</table>
+${cosmeticLine}
+<hr class="hr"/>
+<div class="footer">${footerText}</div>
+<div style="margin-top:8px"></div>
+</body></html>`;
+}
+
+/* ════════════════════════════════════════════════════════════
+   STYLES
+════════════════════════════════════════════════════════════ */
+const styles = {
+  posRoot: { display: 'flex', flexDirection: 'column', height: '100%' },
+  offlineBanner: {
+    background: 'rgba(245,158,11,0.15)',
+    border: '1px solid rgba(245,158,11,0.4)',
+    color: 'var(--clr-accent)',
+    fontSize: '0.78rem',
+    fontWeight: 600,
+    padding: '0.45rem 1rem',
+    borderRadius: 'var(--radius)',
+    marginBottom: '0.75rem',
+    textAlign: 'center',
+  },
+  posLayout: {
+    display: 'grid',
+    gridTemplateColumns: '1fr 300px',
+    gap: '1.25rem',
+    flex: 1,
+    minHeight: 0,
+  },
+  cartPanel: {
+    background: 'var(--clr-surface)',
+    border: '1px solid var(--clr-border)',
+    borderRadius: 'var(--radius-lg)',
+    padding: '1rem',
+    display: 'flex',
+    flexDirection: 'column',
+    gap: '0.75rem',
+    overflow: 'hidden',
+    minHeight: 0,
+  },
+  summaryPanel: {
+    display: 'flex',
+    flexDirection: 'column',
+    gap: '0',
+    overflowY: 'auto',
+  },
+  searchRow: { display: 'flex', gap: '0.5rem', alignItems: 'center' },
+  searchDrop: {
+    background: 'var(--clr-bg)',
+    border: '1px solid var(--clr-border)',
+    borderRadius: 'var(--radius)',
+    overflow: 'hidden',
+    maxHeight: 280,
+    overflowY: 'auto',
+    zIndex: 10,
+    boxShadow: '0 4px 12px rgba(0,0,0,0.15)',
+  },
+  searchItem: {
+    display: 'flex',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    padding: '0.6rem 0.85rem',
+    cursor: 'pointer',
+    borderBottom: '1px solid var(--clr-border)',
+    transition: 'background 0.1s',
+  },
+  qtyBtn: {
+    width: 28, height: 28,
+    background: 'var(--clr-bg)',
+    border: '1px solid var(--clr-border)',
+    borderRadius: 'var(--radius-sm)',
+    cursor: 'pointer',
+    color: 'var(--clr-text)',
+    fontWeight: 700,
+    fontSize: '0.95rem',
+    display: 'flex', alignItems: 'center', justifyContent: 'center',
+  },
+  shortcutsBar: {
+    display: 'flex',
+    gap: '0.35rem',
+    flexWrap: 'wrap',
+    paddingTop: '0.5rem',
+    borderTop: '1px solid var(--clr-border)',
+  },
+  shortcutChip: {
+    fontSize: '0.68rem',
+    color: 'var(--clr-text-dim)',
+    display: 'flex',
+    alignItems: 'center',
+    gap: '0.25rem',
+  },
+  kbdKey: {
+    background: 'var(--clr-bg)',
+    border: '1px solid var(--clr-border)',
+    borderBottom: '2px solid var(--clr-border)',
+    borderRadius: 3,
+    padding: '1px 4px',
+    fontSize: '0.67rem',
+    fontFamily: 'var(--font-mono)',
+    color: 'var(--clr-text)',
+  },
+  billDoneBox: {
+    background: 'rgba(16,185,129,0.08)',
+    border: '1px solid rgba(16,185,129,0.25)',
+    borderRadius: 'var(--radius)',
+    padding: '0.85rem',
+    marginTop: '1rem',
+  },
+  heldRow: {
+    display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+    padding: '0.75rem 0', borderBottom: '1px solid var(--clr-border)',
+  },
+  pastBillRow: {
+    display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+    padding: '0.6rem 0.5rem',
+    borderBottom: '1px solid var(--clr-border)',
+    borderRadius: 'var(--radius-sm)',
+    transition: 'background 0.1s',
+  },
+};
